@@ -273,15 +273,41 @@ function openEditContrato(id) {
 }
 
 function renderContratoForm(c) {
-  const inms = API.getInmuebles();
-  const inmOpts = inms.map(i=>`<option value="${i.id}"${c&&c.inmueble_id===i.id?' selected':''}>${i.localidad} — ${i.direccion.slice(0,40)}</option>`).join('');
   const isEdit = !!c;
+  // En nuevo contrato: solo inmuebles libres. En edición: todos (para no bloquear)
+  const inms = API.getInmuebles().filter(i => {
+    if (isEdit) return true;
+    return !i.alquilado && i.alquilado !== 'TRUE' && i.alquilado !== true;
+  }).sort((a,b) => a.localidad.localeCompare(b.localidad) || a.direccion.localeCompare(b.direccion));
+
+  // Inmueble seleccionado actualmente (para edición)
+  const selInm = c ? API.getInmuebles().find(i=>i.id===c.inmueble_id) : null;
 
   document.getElementById('ctr-modal-form').innerHTML = `
-    <div class="fg"><label class="fl">Inmueble *</label>
-      <select class="fi fsel" id="cf-inm">${inmOpts}</select></div>
+    <div class="fg">
+      <label class="fl">Inmueble * ${!isEdit?`<span style="color:var(--grn);font-weight:400">(${inms.length} libres)</span>`:''}</label>
+      <div class="inm-search-wrap">
+        <input class="fi" type="text" id="cf-inm-search"
+          placeholder="Buscar por localidad o dirección..."
+          oninput="filtrarInmuebles()"
+          autocomplete="off">
+        <input type="hidden" id="cf-inm" value="${c?.inmueble_id||''}">
+      </div>
+      ${selInm ? `<div class="inm-selected" id="cf-inm-sel">
+        <span>✅ ${selInm.localidad} — ${selInm.tipo} — ${selInm.direccion.slice(0,45)}</span>
+      </div>` : `<div class="inm-selected" id="cf-inm-sel" style="display:none"></div>`}
+      <div class="inm-list" id="cf-inm-list">
+        ${inms.map(i=>`
+          <div class="inm-list-item" onclick="seleccionarInmueble('${i.id}','${i.localidad}','${i.tipo}','${i.direccion.slice(0,50).replace(/'/g,'')}')">
+            <div class="inm-list-loc">${i.localidad} · <span class="badge badge-sup">${i.tipo}</span></div>
+            <div class="inm-list-dir">${i.direccion}</div>
+          </div>
+        `).join('')}
+        ${!inms.length ? `<div class="inm-list-empty">No hay inmuebles libres disponibles</div>` : ''}
+      </div>
+    </div>
     <div class="frow">
-      <div class="fg"><label class="fl">Inquilino</label><input class="fi" id="cf-inq" value="${c?.inquilino||''}"></div>
+      <div class="fg"><label class="fl">Inquilino</label><input class="fi" id="cf-inq" value="${c?.inquilino||''}" placeholder="Nombre completo"></div>
       <div class="fg"><label class="fl">DNI / NIE</label><input class="fi" id="cf-dni" value="${c?.dni||''}"></div>
     </div>
     <div class="frow">
@@ -293,7 +319,7 @@ function renderContratoForm(c) {
       <div class="fg"><label class="fl">Fecha fin</label><input class="fi" type="date" id="cf-fin" value="${c?.fecha_fin||''}"></div>
     </div>
     <div class="frow">
-      <div class="fg"><label class="fl">Renta mensual (€) *</label><input class="fi" type="number" min="0" id="cf-renta" value="${c?.renta_mensual||''}"></div>
+      <div class="fg"><label class="fl">Renta mensual (€) *</label><input class="fi" type="number" min="0" id="cf-renta" value="${c?.renta_mensual||''}" placeholder="0"></div>
       <div class="fg"><label class="fl">Periodicidad *</label>
         <select class="fi fsel" id="cf-per">
           ${['mensual','trimestral','cuatrimestral','semestral','anual'].map(p=>`<option value="${p}"${c?.periodicidad===p?' selected':''}>${p.charAt(0).toUpperCase()+p.slice(1)}</option>`).join('')}
@@ -301,53 +327,115 @@ function renderContratoForm(c) {
       </div>
     </div>
     <div class="frow">
-      <div class="fg"><label class="fl">Día habitual de cobro</label><input class="fi" type="number" min="1" max="31" id="cf-dia" value="${c?.dia_cobro||''}"></div>
+      <div class="fg"><label class="fl">Día habitual de cobro</label><input class="fi" type="number" min="1" max="31" id="cf-dia" value="${c?.dia_cobro||''}" placeholder="1-31"></div>
       <div class="fg"><label class="fl">Fianza (€)</label><input class="fi" type="number" min="0" id="cf-fianza" value="${c?.fianza||''}"></div>
     </div>
     <div class="fg"><label class="fl">Notas</label><textarea class="fi ftxt" id="cf-notas">${c?.notas||''}</textarea></div>
     ${isEdit?`<input type="hidden" id="cf-id" value="${c.id}">`:''}
   `;
+
+  // Guardar lista completa para filtrar
+  window._inmListData = inms;
+
+  // Mostrar/ocultar lista al hacer foco
+  setTimeout(() => {
+    const searchEl = document.getElementById("cf-inm-search");
+    const listEl   = document.getElementById("cf-inm-list");
+    if (!searchEl || !listEl) return;
+    searchEl.addEventListener("focus", () => { listEl.style.display = listEl.children.length ? "block" : "none"; });
+    searchEl.addEventListener("blur",  () => setTimeout(() => { listEl.style.display = "none"; }, 200));
+  }, 100);
+}
+
+// Filtrar inmuebles mientras escribe
+function filtrarInmuebles() {
+  const q = (document.getElementById('cf-inm-search').value||'').toLowerCase();
+  const lista = window._inmListData || [];
+  const filtrados = q ? lista.filter(i =>
+    i.localidad.toLowerCase().includes(q) ||
+    i.direccion.toLowerCase().includes(q) ||
+    i.tipo.toLowerCase().includes(q)
+  ) : lista;
+  const lEl=document.getElementById('cf-inm-list');lEl.style.display='block';lEl.innerHTML = filtrados.length
+    ? filtrados.map(i=>`
+        <div class="inm-list-item" onclick="seleccionarInmueble('${i.id}','${i.localidad}','${i.tipo}','${i.direccion.slice(0,50).replace(/'/g,'')}')">
+          <div class="inm-list-loc">${i.localidad} · <span class="badge badge-sup">${i.tipo}</span></div>
+          <div class="inm-list-dir">${i.direccion}</div>
+        </div>`).join('')
+    : `<div class="inm-list-empty">Sin resultados</div>`;
+}
+
+// Al pulsar un inmueble de la lista
+function seleccionarInmueble(id, localidad, tipo, dir) {
+  document.getElementById('cf-inm').value = id;
+  document.getElementById('cf-inm-search').value = '';
+  document.getElementById('cf-inm-list').innerHTML = '';
+  const sel = document.getElementById('cf-inm-sel');
+  sel.style.display = 'block';
+  sel.innerHTML = `<span>✅ ${localidad} — ${tipo} — ${dir}</span>
+    <button onclick="deseleccionarInmueble()" class="inm-desel">✕</button>`;
+}
+
+function deseleccionarInmueble() {
+  document.getElementById('cf-inm').value = '';
+  document.getElementById('cf-inm-sel').style.display = 'none';
+  filtrarInmuebles();
 }
 
 async function saveContrato() {
-  const inmId  = document.getElementById('cf-inm').value;
-  const ini    = document.getElementById('cf-ini').value;
-  const renta  = parseFloat(document.getElementById('cf-renta').value)||0;
-  const per    = document.getElementById('cf-per').value;
-  if (!inmId || !ini || !renta) { toast('Inmueble, fecha inicio y renta son obligatorios', true); return; }
+  const inmId = document.getElementById('cf-inm').value;
+  const ini   = document.getElementById('cf-ini').value;
+  const renta = parseFloat(document.getElementById('cf-renta').value)||0;
+  const per   = document.getElementById('cf-per').value;
+
+  if (!inmId) { toast('Selecciona un inmueble', true); return; }
+  if (!ini)   { toast('La fecha de inicio es obligatoria', true); return; }
+  if (!renta) { toast('La renta mensual es obligatoria', true); return; }
 
   const isEdit = !!document.getElementById('cf-id');
   const id     = isEdit ? document.getElementById('cf-id').value : idContrato();
 
   const obj = {
     id, inmueble_id: inmId,
-    inquilino:   document.getElementById('cf-inq').value.trim(),
-    dni:         document.getElementById('cf-dni').value.trim(),
-    telefono:    document.getElementById('cf-tel').value.trim(),
-    email:       document.getElementById('cf-email').value.trim(),
+    inquilino:    document.getElementById('cf-inq').value.trim(),
+    dni:          document.getElementById('cf-dni').value.trim(),
+    telefono:     document.getElementById('cf-tel').value.trim(),
+    email:        document.getElementById('cf-email').value.trim(),
     fecha_inicio: ini,
-    fecha_fin:   document.getElementById('cf-fin').value || '',
+    fecha_fin:    document.getElementById('cf-fin').value || '',
     renta_mensual: renta,
     periodicidad: per,
-    dia_cobro:   parseInt(document.getElementById('cf-dia').value)||0,
-    fianza:      parseFloat(document.getElementById('cf-fianza').value)||0,
-    activo:      true,
-    notas:       document.getElementById('cf-notas').value.trim()
+    dia_cobro:    parseInt(document.getElementById('cf-dia').value)||0,
+    fianza:       parseFloat(document.getElementById('cf-fianza').value)||0,
+    activo:       true,
+    notas:        document.getElementById('cf-notas').value.trim()
   };
 
   loading(true);
   try {
+    let nPagos = 0;
     if (isEdit) {
       await API.updateContrato(obj);
     } else {
+      // 1. Crear contrato
       await API.createContrato(obj);
-      // Generar pagos automáticos
+
+      // 2. Generar pagos automáticos
       const pagos = generarPagos(obj);
-      if (pagos.length) await API.createPagos(pagos);
+      if (pagos.length) { await API.createPagos(pagos); nPagos = pagos.length; }
+
+      // 3. Actualizar inmueble → alquilado + precio_alquiler
+      const inm = API.getInmuebles().find(i=>i.id===inmId);
+      if (inm) {
+        const inmActualizado = { ...inm, alquilado: true, precio_alquiler: renta };
+        await API.updateInm(inmActualizado);
+      }
     }
     closeModal('ctr-modal');
     renderAlquileres();
-    toast('✅ Contrato guardado — ' + (isEdit ? 'actualizado' : pagos?.length + ' pagos generados'));
+    // Refrescar lista inmuebles por si cambia el badge alquilado
+    if (typeof renderList === 'function') renderList();
+    toast('✅ Contrato guardado' + (!isEdit ? ` · ${nPagos} pagos generados · Inmueble marcado alquilado` : ' · Actualizado'));
   } catch(e) {
     toast('Error: ' + e.message, true);
   } finally {
@@ -367,11 +455,25 @@ async function confirmarBaja() {
   if (!fecha) { toast('Selecciona la fecha de baja', true); return; }
   loading(true);
   try {
+    // Obtener el contrato para saber qué inmueble liberar
+    const ctr = API.getContratos().find(c=>c.id===_bajaId);
+
     await API.bajaContrato(_bajaId, fecha);
+
+    // Actualizar inmueble → libre + precio_alquiler = 0
+    if (ctr) {
+      const inm = API.getInmuebles().find(i=>i.id===ctr.inmueble_id);
+      if (inm) {
+        const inmActualizado = { ...inm, alquilado: false, precio_alquiler: 0 };
+        await API.updateInm(inmActualizado);
+      }
+    }
+
     closeModal('baja-modal');
     closeAlqDetail();
     renderAlquileres();
-    toast('✅ Contrato dado de baja · Pagos futuros eliminados');
+    if (typeof renderList === 'function') renderList();
+    toast('✅ Contrato dado de baja · Inmueble marcado libre · Pagos futuros eliminados');
   } catch(e) {
     toast('Error: ' + e.message, true);
   } finally {
