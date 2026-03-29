@@ -304,6 +304,12 @@ async function init(){
   try{
     await API.load();
     buildLocFilter();renderList();renderFinance();
+    // Sincronizar pagos al arrancar (en background, sin bloquear UI)
+    if (API.isConfigured() && typeof sincronizarPagos === 'function') {
+      sincronizarPagos()
+        .then(n => { if(n>0){ updateAvisosBadge(); } })
+        .catch(e => console.warn('Sync pagos:', e.message));
+    }
     // Badge de avisos en tab
     updateAvisosBadge();
     if(!API.isConfigured())document.getElementById('api-banner').style.display='flex';
