@@ -448,6 +448,13 @@ async function saveContrato() {
   if (!ini)   { toast('La fecha de inicio es obligatoria', true); return; }
   if (!renta) { toast('La renta mensual es obligatoria', true); return; }
 
+  // Deshabilitar botón inmediatamente para evitar doble envío
+  const btnGuardar = document.querySelector('#ctr-modal .btn-p');
+  if (btnGuardar) {
+    btnGuardar.disabled = true;
+    btnGuardar.textContent = '⏳ Guardando...';
+  }
+
   const isEdit = !!document.getElementById('cf-id');
   const id     = isEdit ? document.getElementById('cf-id').value : idContrato();
 
@@ -467,13 +474,21 @@ async function saveContrato() {
     notas:        document.getElementById('cf-notas').value.trim()
   };
 
-  loading(true);
+  // Cerrar modal y mostrar overlay de progreso
+  closeModal('ctr-modal');
+  showProgress(isEdit ? ['Guardando cambios...'] : [
+    'Actualizando inmueble...',
+    'Creando contrato...',
+    'Comprobando pagos...'
+  ]);
+
   try {
     let nPagos = 0;
     if (isEdit) {
       await API.updateContrato(obj);
     } else {
       // 1. Actualizar inmueble PRIMERO → alquilado + precio_alquiler
+      setProgressStep(0);
       const inm = API.getInmuebles().find(i=>i.id===inmId);
       if (inm) {
         const inmActualizado = { ...inm, alquilado: true, precio_alquiler: renta };
@@ -481,21 +496,62 @@ async function saveContrato() {
       }
 
       // 2. Crear contrato
+      setProgressStep(1);
       await API.createContrato(obj);
 
-      // 3. Sincronizar: si el primer vencimiento cae en ≤31 días, créalo ya
+      // 3. Sincronizar pagos si el primer vencimiento cae en ≤31 días
+      setProgressStep(2);
       nPagos = await sincronizarPagos();
     }
-    closeModal('ctr-modal');
+
+    hideProgress();
     renderAlquileres();
     if (typeof renderList === 'function') renderList();
     const msg = isEdit ? 'Actualizado' :
-      (nPagos > 0 ? `Inmueble marcado alquilado · ${nPagos} pago${nPagos>1?'s':''} generado${nPagos>1?'s':''}` : 'Inmueble marcado alquilado · Primer pago se generará cuando falten ≤31 días');
+      (nPagos > 0
+        ? `Inmueble marcado alquilado · ${nPagos} pago${nPagos>1?'s':''} generado${nPagos>1?'s':''}`
+        : 'Inmueble marcado alquilado · Pago se generará cuando falten ≤31 días');
     toast('✅ Contrato guardado · ' + msg);
   } catch(e) {
+    hideProgress();
     toast('Error: ' + e.message, true);
-  } finally {
-    loading(false);
+    // Rehabilitar botón si hay error
+    const btn = document.querySelector('#ctr-modal .btn-p');
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Guardar'; }
+  }
+}
+
+// ── Overlay de progreso ──────────────────────────────────────────
+function showProgress(pasos) {
+  let el = document.getElementById('progress-overlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'progress-overlay';
+    document.getElementById('app').appendChild(el);
+  }
+  el.innerHTML = `
+    <div class="progress-box">
+      <div class="progress-spinner"></div>
+      <div class="progress-steps" id="progress-steps">
+        ${pasos.map((p, i) => `<div class="progress-step" id="pstep-${i}">${p}</div>`).join('')}
+      </div>
+    </div>`;
+  el.style.display = 'flex';
+  // Activar el primer paso
+  setProgressStep(0);
+}
+
+function setProgressStep(idx) {
+  document.querySelectorAll('.progress-step').forEach((el, i) => {
+    el.className = 'progress-step' + (i < idx ? ' done' : i === idx ? ' active' : '');
+  });
+}
+
+function hideProgress() {
+  const el = document.getElementById('progress-overlay');
+  if (el) {
+    el.classList.add('progress-fade-out');
+    setTimeout(() => { el.style.display = 'none'; el.classList.remove('progress-fade-out'); }, 400);
   }
 }
 
