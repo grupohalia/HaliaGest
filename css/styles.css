@@ -244,3 +244,44 @@ input,select,textarea{font-family:inherit}
 }
 /* Lista inmuebles oculta por defecto, JS la muestra */
 #cf-inm-list { display: none; }
+
+/* ── Overlay de progreso ─────────────────────────────────────── */
+#progress-overlay {
+  position: absolute; inset: 0; z-index: 300;
+  background: rgba(10,12,16,.85);
+  display: none; align-items: center; justify-content: center;
+}
+.progress-box {
+  background: var(--sur);
+  border: 1px solid var(--bdr);
+  border-radius: 18px;
+  padding: 28px 32px;
+  display: flex; flex-direction: column; align-items: center; gap: 20px;
+  min-width: 240px;
+}
+.progress-spinner {
+  width: 36px; height: 36px;
+  border: 3px solid var(--bdr);
+  border-top-color: var(--acc);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.progress-steps { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.progress-step {
+  font-size: 13px; color: var(--txt3);
+  display: flex; align-items: center; gap: 10px;
+  transition: color .3s;
+}
+.progress-step::before {
+  content: '○'; font-size: 14px; flex-shrink: 0;
+  transition: all .3s;
+}
+.progress-step.active {
+  color: var(--txt); font-weight: 500;
+}
+.progress-step.active::before { content: '◉'; color: var(--acc); }
+.progress-step.done { color: var(--grn); }
+.progress-step.done::before { content: '✓'; color: var(--grn); font-size: 12px; }
+@keyframes fadeOut { to { opacity: 0; } }
+.progress-fade-out { animation: fadeOut .4s ease forwards; }
