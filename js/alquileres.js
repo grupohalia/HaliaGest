@@ -111,18 +111,118 @@ function estadoVisual(pago) {
 // luego renderiza. Se usa una flag para no lanzar dos veces seguidas.
 let _sincronizando = false;
 async function renderAlquileres() {
+  // Pintar inmediatamente con datos actuales
+  _renderAlquileres();
+  // Sincronizar en background y repintar si hay cambios
   if (!_sincronizando && API.isConfigured()) {
     _sincronizando = true;
     try {
       const n = await sincronizarPagos();
-      if (n > 0) console.log(`[Pagos] ${n} nuevo(s) generado(s)`);
+      if (n > 0) {
+        console.log(`[Pagos] ${n} nuevo(s) generado(s)`);
+        _renderAlquileres();
+        updateAvisosBadge();
+      }
     } catch(e) {
       console.warn('[Pagos] Error en sincronización:', e.message);
     } finally {
       _sincronizando = false;
     }
   }
-  _renderAlquileres();
+}
+
+// ── Render pestaña Avisos (independiente) ───────────────────────
+async function renderAvisos() {
+  // Pintar inmediatamente con datos actuales
+  _renderAvisos();
+  // Luego sincronizar en background y repintar si hay cambios
+  if (!_sincronizando && API.isConfigured()) {
+    _sincronizando = true;
+    try {
+      const n = await sincronizarPagos();
+      if (n > 0) {
+        _renderAvisos(); // repintar con los nuevos pagos
+        updateAvisosBadge();
+      }
+    } catch(e) {
+      console.warn('[Avisos] Error sync:', e.message);
+    } finally {
+      _sincronizando = false;
+    }
+  }
+}
+
+function _renderAvisos() {
+  const contratos = API.getContratos();
+  const pagos     = API.getPagos();
+  const inmuebles = API.getInmuebles();
+
+  const avisos = pagos
+    .filter(p => p.estado === 'pendiente')
+    .map(p => ({ ...p, _ev: estadoVisual(p) }))
+    .filter(p => p._ev.cls === 'badge-proximo' || p._ev.cls === 'badge-vencido')
+    .sort((a,b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento));
+
+  // Separar por tipo
+  const vencidos = avisos.filter(p => p._ev.cls === 'badge-vencido');
+  const proximos = avisos.filter(p => p._ev.cls === 'badge-proximo');
+
+  let html = '';
+
+  // ── VENCIDOS ──────────────────────────────────────────────────
+  if (vencidos.length) {
+    html += `<div class="alq-section">
+      <div class="alq-sec-title" style="color:var(--red)">🔴 Pagos vencidos (${vencidos.length})</div>`;
+    vencidos.forEach(p => html += renderAvisoCard(p, contratos, inmuebles));
+    html += `</div>`;
+  }
+
+  // ── PRÓXIMOS ──────────────────────────────────────────────────
+  if (proximos.length) {
+    html += `<div class="alq-section">
+      <div class="alq-sec-title" style="color:var(--ylw)">🟡 Próximos 31 días (${proximos.length})</div>`;
+    proximos.forEach(p => html += renderAvisoCard(p, contratos, inmuebles));
+    html += `</div>`;
+  }
+
+  if (!avisos.length) {
+    html += `<div class="avisos-empty">
+      <div class="avisos-empty-icon">✅</div>
+      <div class="avisos-empty-title">Todo al día</div>
+      <div class="avisos-empty-sub">No hay pagos vencidos ni vencimientos en los próximos 31 días</div>
+    </div>`;
+  }
+
+  document.getElementById('avisos-body').innerHTML = html;
+  updateAvisosBadge();
+} // end _renderAvisos
+
+function renderAvisoCard(p, contratos, inmuebles) {
+  const ctr = contratos.find(c=>c.id===p.contrato_id) || {};
+  const inm = inmuebles.find(i=>i.id===p.inmueble_id) || {};
+  const ev  = p._ev;
+  const diasStr = ev.dias != null
+    ? (ev.cls==='badge-vencido' ? `Vencido hace ${ev.dias} día${ev.dias!==1?'s':''}` : `Vence en ${ev.dias} día${ev.dias!==1?'s':''}`)
+    : '';
+  return `<div class="alq-card aviso-card ${ev.cls==='badge-vencido'?'aviso-vencido':'aviso-proximo'}">
+    <div class="alq-card-top">
+      <div style="flex:1;min-width:0">
+        <div class="alq-card-title">${ctr.inquilino || '—'}</div>
+        <div class="alq-card-sub">${inm.tipo||''} · ${inm.localidad||''}</div>
+        <div class="alq-card-sub" style="margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${inm.direccion ? inm.direccion.split(' ').slice(0,6).join(' ') : '—'}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:10px">
+        <div class="badge ${ev.cls}" style="margin-bottom:4px">${ev.label}</div>
+        <div class="alq-importe">${fmtE(p.importe)}</div>
+        <div class="alq-fecha">${fmtFecha(p.fecha_vencimiento)}</div>
+        <div class="alq-fecha" style="${ev.cls==='badge-vencido'?'color:var(--red)':'color:var(--ylw)'}">${diasStr}</div>
+      </div>
+    </div>
+    <div class="alq-card-btns">
+      <button class="abtn abtn-cobrar" onclick="openCobrarModal('${p.id}')">💳 Registrar cobro</button>
+      <button class="abtn abtn-ver" onclick="openDetallePago('${p.id}')">Ver contrato</button>
+    </div>
+  </div>`;
 }
 
 function _renderAlquileres() {
@@ -131,50 +231,11 @@ function _renderAlquileres() {
   const pagos     = API.getPagos();
   const inmuebles = API.getInmuebles();
 
-  // Avisos: pagos próximos (≤30d) y vencidos no cobrados
-  const avisos = pagos
-    .filter(p => p.estado === 'pendiente')
-    .map(p => ({ ...p, _ev: estadoVisual(p) }))
-    .filter(p => p._ev.cls === 'badge-proximo' || p._ev.cls === 'badge-vencido')
-    .sort((a,b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento));
-
   // Contratos activos
   const activos  = contratos.filter(c => c.activo === true || c.activo === 'TRUE');
   const inactivos = contratos.filter(c => !(c.activo === true || c.activo === 'TRUE'));
 
   let html = '';
-
-  // ── AVISOS ────────────────────────────────────────────────────
-  html += `<div class="alq-section">
-    <div class="alq-sec-title">🔔 Avisos (${avisos.length})</div>`;
-
-  if (!avisos.length) {
-    html += `<div class="alq-empty">Sin vencimientos próximos ni pagos vencidos</div>`;
-  } else {
-    avisos.forEach(p => {
-      const ctr = contratos.find(c=>c.id===p.contrato_id) || {};
-      const inm = inmuebles.find(i=>i.id===p.inmueble_id) || {};
-      const ev  = p._ev;
-      html += `<div class="alq-card aviso-card">
-        <div class="alq-card-top">
-          <div>
-            <div class="alq-card-title">${ctr.inquilino || '—'}</div>
-            <div class="alq-card-sub">${inm.direccion ? inm.direccion.split(' ').slice(0,5).join(' ') : '—'}</div>
-          </div>
-          <div style="text-align:right">
-            <div class="badge ${ev.cls}">${ev.label}</div>
-            <div class="alq-importe">${fmtE(p.importe)}</div>
-            <div class="alq-fecha">${fmtFecha(p.fecha_vencimiento)}</div>
-          </div>
-        </div>
-        <div class="alq-card-btns">
-          <button class="abtn abtn-cobrar" onclick="openCobrarModal('${p.id}')">💳 Registrar cobro</button>
-          <button class="abtn abtn-ver" onclick="openDetallePago('${p.id}')">Ver detalle</button>
-        </div>
-      </div>`;
-    });
-  }
-  html += `</div>`;
 
   // ── CONTRATOS ACTIVOS ─────────────────────────────────────────
   html += `<div class="alq-section">
@@ -616,7 +677,13 @@ async function confirmarCobro() {
   try {
     await API.cobrarPago(_pagoId, fecha, forma, notas);
     closeModal('cobro-modal');
-    renderAlquileres();
+    // Refrescar pestaña actual (avisos o alquileres)
+    if (document.getElementById('screen-avisos')?.classList.contains('active')) {
+      renderAvisos();
+    } else {
+      renderAlquileres();
+    }
+    updateAvisosBadge();
     toast('✅ Pago registrado como cobrado');
   } catch(e) {
     toast('Error: ' + e.message, true);
