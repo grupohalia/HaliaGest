@@ -6,10 +6,9 @@
   <meta name="theme-color" content="#0a0c10">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Halia Gest</title>
+  <title>GestorFincas</title>
   <link rel="stylesheet" href="css/styles.css">
   <script>
-    // ✏️ PEGA AQUÍ TU URL DE GOOGLE APPS SCRIPT
     window.GAS_URL = 'https://script.google.com/macros/s/AKfycbxMu22YYP-kkAlALCZas3PX_qgpTYZqOHlvlYuYdyIwawHeEEMgVJhgWfdpXtO_TLuv/exec';
   </script>
 </head>
@@ -19,7 +18,7 @@
 
   <header class="header" id="main-header">
     <div class="hbrand">
-      <div class="htitle">HALIA</div>
+      <div class="htitle">GestorFincas</div>
       <div class="hsub">Gestión de inmuebles</div>
     </div>
     <button class="hadd" onclick="openNewModal()">+</button>
@@ -56,6 +55,15 @@
     <div class="scroll-area"><div class="list-section" id="list-container"></div></div>
   </div>
 
+  <!-- AVISOS -->
+  <div class="screen" id="screen-avisos">
+    <div class="scroll-area">
+      <div style="padding:14px 14px 80px" id="avisos-body">
+        <div class="alq-empty">Cargando...</div>
+      </div>
+    </div>
+  </div>
+
   <!-- ALQUILERES -->
   <div class="screen" id="screen-alq">
     <div class="scroll-area">
@@ -82,9 +90,12 @@
     <button class="nav-tab active" id="tab-list" onclick="switchTab('list')">
       <span class="ni">🏠</span>Inmuebles
     </button>
-    <button class="nav-tab" id="tab-alq" onclick="switchTab('alq')">
-      <span class="ni">🔑</span>Alquileres
+    <button class="nav-tab" id="tab-avisos" onclick="switchTab('avisos')">
+      <span class="ni">🔔</span>Avisos
       <span id="avisos-badge" class="avisos-badge" style="display:none"></span>
+    </button>
+    <button class="nav-tab" id="tab-alq" onclick="switchTab('alq')">
+      <span class="ni">🔑</span>Contratos
     </button>
     <button class="nav-tab" id="tab-finance" onclick="switchTab('finance')">
       <span class="ni">📊</span>Finanzas
