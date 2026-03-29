@@ -9,33 +9,28 @@
   <title>GestorFincas</title>
   <link rel="stylesheet" href="css/styles.css">
   <script>
-    // ✏️  PEGA AQUÍ TU URL DE GOOGLE APPS SCRIPT
-    // Ejemplo: window.GAS_URL = 'https://script.google.com/macros/s/XXXXX/exec';
-    window.GAS_URL = 'https://script.google.com/macros/s/AKfycbxMu22YYP-kkAlALCZas3PX_qgpTYZqOHlvlYuYdyIwawHeEEMgVJhgWfdpXtO_TLuv/exec';
-    // window.GAS_URL = 'https://script.googleusercontent.com/macros/echo?user_content_key=AWDtjMUPA5xF4B1hXc4c_c_3BQHFdoh329LgWH7ivtD-_tiAVUWBuay0X7FAcpjil7amy4_1PA8qYBY6GSv3xR3GUWLZ_au7B6jdPKlV9OpzCyc3B0EKmgxQYIfNNp2ZEp9L0TzAkJaqDPJnMsu9uhe6Wh5o2jS6wt4krDuqYZS9rD4j_4cUg5joFyBg7caLsAYLpMh-qLyrtO4ISDX9zvrXzaLrjion5m2J8B08gHdWNf5-8D3QM4JVlGEdDZrjB_MhjuC1bcmX_OrystArvgZ3M07xLECh4A&lib=Mm8C7DicLddkB4ocaDK1ZZreUnuxCpyAE';
+    // ✏️ PEGA AQUÍ TU URL DE GOOGLE APPS SCRIPT
+    window.GAS_URL = '';
   </script>
 </head>
 <body>
 <div id="app">
-
   <div id="loading-bar"></div>
 
-  <!-- Header -->
   <header class="header" id="main-header">
     <div class="hbrand">
       <div class="htitle">GestorFincas</div>
       <div class="hsub">Gestión de inmuebles</div>
     </div>
-    <button class="hadd" onclick="openNewModal()" aria-label="Nuevo inmueble">+</button>
+    <button class="hadd" onclick="openNewModal()">+</button>
   </header>
 
-  <!-- Banner modo demo -->
   <div id="api-banner">
-    <span>⚡ Modo demo — los cambios no se guardan. Configura GAS_URL en index.html</span>
+    <span>⚡ Modo demo — configura GAS_URL en index.html</span>
     <button onclick="this.parentElement.style.display='none'">✕</button>
   </div>
 
-  <!-- Listado -->
+  <!-- LISTADO -->
   <div class="screen active" id="screen-list">
     <div class="search-box">
       <div class="swrap">
@@ -58,12 +53,19 @@
       <button class="filter-chip" onclick="setFiltroEstado(this,'libre')">⬜ Libres</button>
     </div>
     <div id="stats-row" class="stats-row"></div>
+    <div class="scroll-area"><div class="list-section" id="list-container"></div></div>
+  </div>
+
+  <!-- ALQUILERES -->
+  <div class="screen" id="screen-alq">
     <div class="scroll-area">
-      <div class="list-section" id="list-container"></div>
+      <div style="padding:14px 14px 80px" id="alq-body">
+        <div class="alq-empty">Cargando...</div>
+      </div>
     </div>
   </div>
 
-  <!-- Finanzas -->
+  <!-- FINANZAS -->
   <div class="screen" id="screen-finance">
     <div class="fin-scroll">
       <div class="period-toggle">
@@ -75,17 +77,21 @@
     </div>
   </div>
 
-  <!-- Nav -->
+  <!-- NAV -->
   <nav class="nav-tabs">
     <button class="nav-tab active" id="tab-list" onclick="switchTab('list')">
       <span class="ni">🏠</span>Inmuebles
+    </button>
+    <button class="nav-tab" id="tab-alq" onclick="switchTab('alq')">
+      <span class="ni">🔑</span>Alquileres
+      <span id="avisos-badge" class="avisos-badge" style="display:none"></span>
     </button>
     <button class="nav-tab" id="tab-finance" onclick="switchTab('finance')">
       <span class="ni">📊</span>Finanzas
     </button>
   </nav>
 
-  <!-- Detalle -->
+  <!-- DETALLE INMUEBLE -->
   <div id="detail-screen">
     <header class="header">
       <button class="hback" onclick="closeDetail()">←</button>
@@ -99,7 +105,16 @@
     </div>
   </div>
 
-  <!-- Modal editar/crear -->
+  <!-- DETALLE CONTRATO -->
+  <div id="alq-detail" class="slide-screen">
+    <header class="header">
+      <button class="hback" onclick="closeAlqDetail()">←</button>
+      <div class="hdtitle">Contrato</div>
+    </header>
+    <div class="detail-body" id="alq-det-body"></div>
+  </div>
+
+  <!-- MODAL: EDITAR INMUEBLE -->
   <div class="modal-overlay" id="edit-modal">
     <div class="modal">
       <div class="mhandle"></div>
@@ -112,7 +127,70 @@
     </div>
   </div>
 
-  <!-- Modal confirmar borrar -->
+  <!-- MODAL: NUEVO/EDITAR CONTRATO -->
+  <div class="modal-overlay" id="ctr-modal">
+    <div class="modal">
+      <div class="mhandle"></div>
+      <div class="mtitle" id="ctr-modal-title">Nuevo contrato</div>
+      <div id="ctr-modal-form"></div>
+      <div class="mbtns">
+        <button class="btn btn-s" onclick="closeModal('ctr-modal')">Cancelar</button>
+        <button class="btn btn-p" onclick="saveContrato()" style="flex:2">💾 Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: BAJA CONTRATO -->
+  <div class="modal-overlay" id="baja-modal">
+    <div class="modal">
+      <div class="mhandle"></div>
+      <div class="cconfirm">
+        <div class="cicon">🔴</div>
+        <div class="ctitle">Dar de baja el contrato</div>
+        <div class="ctext">Se eliminarán los pagos pendientes posteriores a la fecha de baja.</div>
+        <div class="fg" style="text-align:left;margin-bottom:16px">
+          <label class="fl">Fecha de baja</label>
+          <input class="fi" type="date" id="baja-fecha">
+        </div>
+        <div class="mbtns">
+          <button class="btn btn-s" onclick="closeModal('baja-modal')">Cancelar</button>
+          <button class="btn btn-d" onclick="confirmarBaja()">Confirmar baja</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: REGISTRAR COBRO -->
+  <div class="modal-overlay" id="cobro-modal">
+    <div class="modal">
+      <div class="mhandle"></div>
+      <div class="mtitle">💳 Registrar cobro</div>
+      <div style="background:var(--sur2);border:1px solid var(--bdr);border-radius:10px;padding:12px;margin-bottom:14px">
+        <div style="font-size:13px;font-weight:600" id="cobro-quien"></div>
+        <div style="display:flex;justify-content:space-between;margin-top:6px">
+          <span style="font-size:12px;color:var(--txt2)">Vencimiento: <span id="cobro-vence"></span></span>
+          <span style="font-size:15px;font-weight:700;color:var(--grn)" id="cobro-importe"></span>
+        </div>
+      </div>
+      <div class="fg"><label class="fl">Fecha de cobro *</label><input class="fi" type="date" id="cobro-fecha"></div>
+      <div class="fg"><label class="fl">Forma de pago</label>
+        <select class="fi fsel" id="cobro-forma">
+          <option value="transferencia">Transferencia</option>
+          <option value="efectivo">Efectivo</option>
+          <option value="domiciliado">Domiciliado</option>
+          <option value="bizum">Bizum</option>
+          <option value="cheque">Cheque</option>
+        </select>
+      </div>
+      <div class="fg"><label class="fl">Notas</label><input class="fi" id="cobro-notas" placeholder="Opcional"></div>
+      <div class="mbtns">
+        <button class="btn btn-s" onclick="closeModal('cobro-modal')">Cancelar</button>
+        <button class="btn btn-p" onclick="confirmarCobro()" style="flex:2">✅ Confirmar cobro</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: CONFIRMAR BORRAR INMUEBLE -->
   <div class="modal-overlay" id="confirm-modal">
     <div class="modal">
       <div class="mhandle"></div>
@@ -133,5 +211,6 @@
 
 <script src="js/api.js"></script>
 <script src="js/app.js"></script>
+<script src="js/alquileres.js"></script>
 </body>
 </html>

@@ -1,0 +1,417 @@
+// ================================================================
+// alquileres.js — Lógica de Contratos y Pagos
+// ================================================================
+
+// ── Utilidades de fecha ─────────────────────────────────────────
+function hoy() {
+  return new Date().toISOString().slice(0, 10);
+}
+function addMeses(dateStr, n) {
+  const d = new Date(dateStr + 'T12:00:00');
+  d.setMonth(d.getMonth() + n);
+  return d.toISOString().slice(0, 10);
+}
+function diasHasta(dateStr) {
+  const hoyMs  = new Date(hoy() + 'T00:00:00').getTime();
+  const fecMs  = new Date(dateStr + 'T00:00:00').getTime();
+  return Math.round((fecMs - hoyMs) / 86400000);
+}
+function fmtFecha(s) {
+  if (!s) return '—';
+  const [y, m, d] = s.split('-');
+  return d + '/' + m + '/' + y;
+}
+function idContrato() {
+  return 'CTR-' + Date.now().toString(36).toUpperCase();
+}
+function idPago() {
+  return 'PAG-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2,4).toUpperCase();
+}
+
+// ── Calcular importe según periodicidad ─────────────────────────
+const MESES_PERIODO = { mensual:1, trimestral:3, cuatrimestral:4, semestral:6, anual:12 };
+function importePeriodo(renta, periodicidad) {
+  return renta * (MESES_PERIODO[periodicidad] || 1);
+}
+
+// ── Generar pagos automáticos de un contrato ────────────────────
+function generarPagos(contrato) {
+  const pagos = [];
+  const meses = MESES_PERIODO[contrato.periodicidad] || 1;
+  const importe = importePeriodo(contrato.renta_mensual, contrato.periodicidad);
+  let fecha = addMeses(contrato.fecha_inicio, meses);
+  const fin = contrato.fecha_fin || addMeses(contrato.fecha_inicio, 120); // 10 años max si no hay fin
+
+  while (fecha <= fin) {
+    pagos.push({
+      id:                idPago(),
+      contrato_id:       contrato.id,
+      inmueble_id:       contrato.inmueble_id,
+      fecha_vencimiento: fecha,
+      importe:           importe,
+      estado:            'pendiente',
+      fecha_cobro:       '',
+      forma_pago:        '',
+      notas:             ''
+    });
+    fecha = addMeses(fecha, meses);
+  }
+  return pagos;
+}
+
+// ── Estado de un pago con aviso 30 días ─────────────────────────
+function estadoVisual(pago) {
+  if (pago.estado === 'cobrado') return { label:'✅ Cobrado',   cls:'badge-cobrado',  dias: null };
+  const d = diasHasta(pago.fecha_vencimiento);
+  if (d < 0)  return { label:'🔴 Vencido',   cls:'badge-vencido',  dias: Math.abs(d) };
+  if (d <= 30) return { label:'🟡 Próximo',   cls:'badge-proximo',  dias: d };
+  return       { label:'⬜ Pendiente',        cls:'badge-pendiente', dias: d };
+}
+
+// ── Render pestaña Alquileres ────────────────────────────────────
+function renderAlquileres() {
+  const hoyStr  = hoy();
+  const contratos = API.getContratos();
+  const pagos     = API.getPagos();
+  const inmuebles = API.getInmuebles();
+
+  // Avisos: pagos próximos (≤30d) y vencidos no cobrados
+  const avisos = pagos
+    .filter(p => p.estado === 'pendiente')
+    .map(p => ({ ...p, _ev: estadoVisual(p) }))
+    .filter(p => p._ev.cls === 'badge-proximo' || p._ev.cls === 'badge-vencido')
+    .sort((a,b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento));
+
+  // Contratos activos
+  const activos  = contratos.filter(c => c.activo === true || c.activo === 'TRUE');
+  const inactivos = contratos.filter(c => !(c.activo === true || c.activo === 'TRUE'));
+
+  let html = '';
+
+  // ── AVISOS ────────────────────────────────────────────────────
+  html += `<div class="alq-section">
+    <div class="alq-sec-title">🔔 Avisos (${avisos.length})</div>`;
+
+  if (!avisos.length) {
+    html += `<div class="alq-empty">Sin vencimientos próximos ni pagos vencidos</div>`;
+  } else {
+    avisos.forEach(p => {
+      const ctr = contratos.find(c=>c.id===p.contrato_id) || {};
+      const inm = inmuebles.find(i=>i.id===p.inmueble_id) || {};
+      const ev  = p._ev;
+      html += `<div class="alq-card aviso-card">
+        <div class="alq-card-top">
+          <div>
+            <div class="alq-card-title">${ctr.inquilino || '—'}</div>
+            <div class="alq-card-sub">${inm.direccion ? inm.direccion.split(' ').slice(0,5).join(' ') : '—'}</div>
+          </div>
+          <div style="text-align:right">
+            <div class="badge ${ev.cls}">${ev.label}</div>
+            <div class="alq-importe">${fmtE(p.importe)}</div>
+            <div class="alq-fecha">${fmtFecha(p.fecha_vencimiento)}</div>
+          </div>
+        </div>
+        <div class="alq-card-btns">
+          <button class="abtn abtn-cobrar" onclick="openCobrarModal('${p.id}')">💳 Registrar cobro</button>
+          <button class="abtn abtn-ver" onclick="openDetallePago('${p.id}')">Ver detalle</button>
+        </div>
+      </div>`;
+    });
+  }
+  html += `</div>`;
+
+  // ── CONTRATOS ACTIVOS ─────────────────────────────────────────
+  html += `<div class="alq-section">
+    <div class="alq-sec-title">
+      📋 Contratos activos (${activos.length})
+      <button class="abtn abtn-new" onclick="openNuevoContrato()">+ Nuevo</button>
+    </div>`;
+
+  if (!activos.length) {
+    html += `<div class="alq-empty">No hay contratos activos. Pulsa "+ Nuevo" para crear uno.</div>`;
+  } else {
+    activos.forEach(c => {
+      const inm  = inmuebles.find(i=>i.id===c.inmueble_id) || {};
+      const pCtr = pagos.filter(p=>p.contrato_id===c.id);
+      const pend  = pCtr.filter(p=>p.estado==='pendiente').length;
+      const cobrados = pCtr.filter(p=>p.estado==='cobrado').length;
+      html += `<div class="alq-card contrato-card" onclick="openDetalleContrato('${c.id}')">
+        <div class="alq-card-top">
+          <div>
+            <div class="alq-card-title">${c.inquilino || '—'}</div>
+            <div class="alq-card-sub">${inm.localidad||''} · ${inm.tipo||''}</div>
+            <div class="alq-card-sub" style="margin-top:2px">${inm.direccion ? inm.direccion.split(' ').slice(0,6).join(' ')+'...' : '—'}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div class="alq-importe">${fmtE(c.renta_mensual)}<span style="font-size:10px;font-weight:400">/mes</span></div>
+            <div class="alq-fecha">${c.periodicidad}</div>
+            <div class="alq-fecha">desde ${fmtFecha(c.fecha_inicio)}</div>
+          </div>
+        </div>
+        <div class="alq-stats">
+          <span>📅 Pagos pendientes: <strong>${pend}</strong></span>
+          <span>✅ Cobrados: <strong>${cobrados}</strong></span>
+        </div>
+      </div>`;
+    });
+  }
+  html += `</div>`;
+
+  // ── CONTRATOS INACTIVOS ───────────────────────────────────────
+  if (inactivos.length) {
+    html += `<div class="alq-section">
+      <div class="alq-sec-title">📁 Contratos finalizados (${inactivos.length})</div>`;
+    inactivos.forEach(c => {
+      const inm = inmuebles.find(i=>i.id===c.inmueble_id) || {};
+      html += `<div class="alq-card contrato-inactivo" onclick="openDetalleContrato('${c.id}')">
+        <div class="alq-card-top">
+          <div>
+            <div class="alq-card-title" style="opacity:.6">${c.inquilino || '—'}</div>
+            <div class="alq-card-sub">${inm.localidad||''} · hasta ${fmtFecha(c.fecha_fin)}</div>
+          </div>
+          <div class="alq-importe" style="opacity:.5">${fmtE(c.renta_mensual)}/mes</div>
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  document.getElementById('alq-body').innerHTML = html;
+}
+
+// ── Detalle contrato ─────────────────────────────────────────────
+function openDetalleContrato(id) {
+  const c   = API.getContratos().find(x=>x.id===id);
+  if (!c) return;
+  const inm = API.getInmuebles().find(i=>i.id===c.inmueble_id) || {};
+  const pCtr = API.getPagos()
+    .filter(p=>p.contrato_id===id)
+    .sort((a,b)=>a.fecha_vencimiento.localeCompare(b.fecha_vencimiento));
+
+  const activo = c.activo===true || c.activo==='TRUE';
+
+  let html = `
+    <div class="det-hero">
+      <div>
+        <div class="det-tipo">${activo ? '🟢 Activo' : '🔴 Finalizado'} · ${c.periodicidad}</div>
+        <div class="det-title">${c.inquilino || 'Sin nombre'}</div>
+        <div class="det-sub">📍 ${inm.direccion || c.inmueble_id}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div class="alq-importe">${fmtE(c.renta_mensual)}/mes</div>
+        <div class="alq-fecha">Cobro: ${fmtE(importePeriodo(c.renta_mensual, c.periodicidad))}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📋 Datos del contrato</div>
+      <div class="row"><span class="lbl">Inicio</span><span class="val">${fmtFecha(c.fecha_inicio)}</span></div>
+      <div class="row"><span class="lbl">Fin</span><span class="val">${fmtFecha(c.fecha_fin)}</span></div>
+      <div class="row"><span class="lbl">Día de cobro</span><span class="val">Día ${c.dia_cobro || '—'}</span></div>
+      <div class="row"><span class="lbl">Fianza</span><span class="val">${fmtE(c.fianza)}</span></div>
+      ${c.notas?`<div class="row"><span class="lbl">Notas</span><span class="val" style="font-size:12px;text-align:right">${c.notas}</span></div>`:''}
+    </div>
+
+    <div class="card">
+      <div class="card-title">👤 Inquilino</div>
+      <div class="row"><span class="lbl">Nombre</span><span class="val">${c.inquilino||'—'}</span></div>
+      <div class="row"><span class="lbl">DNI</span><span class="val">${c.dni||'—'}</span></div>
+      <div class="row"><span class="lbl">Teléfono</span><span class="val">${c.telefono||'—'}</span></div>
+      <div class="row"><span class="lbl">Email</span><span class="val" style="font-size:12px">${c.email||'—'}</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">💳 Pagos (${pCtr.length})</div>`;
+
+  if (!pCtr.length) {
+    html += `<div class="alq-empty">Sin pagos generados</div>`;
+  } else {
+    pCtr.forEach(p => {
+      const ev = estadoVisual(p);
+      html += `<div class="pago-row">
+        <div>
+          <div style="font-size:13px;font-weight:600">${fmtFecha(p.fecha_vencimiento)}</div>
+          <div style="font-size:11px;color:var(--txt2)">${p.fecha_cobro?'Cobrado: '+fmtFecha(p.fecha_cobro):''} ${p.forma_pago||''}</div>
+        </div>
+        <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <span class="badge ${ev.cls}">${ev.label}</span>
+          <span style="font-weight:700;font-size:13px">${fmtE(p.importe)}</span>
+          ${p.estado==='pendiente'?`<button class="abtn abtn-cobrar" style="font-size:10px;padding:3px 8px" onclick="openCobrarModal('${p.id}')">Cobrar</button>`:''}
+        </div>
+      </div>`;
+    });
+  }
+  html += `</div>`;
+
+  if (activo) {
+    html += `<div class="action-bar" style="position:sticky;bottom:0">
+      <button class="btn btn-d" onclick="openBajaModal('${c.id}')">🔴 Dar de baja</button>
+      <button class="btn btn-p" onclick="openEditContrato('${c.id}')" style="flex:2">✏️ Editar</button>
+    </div>`;
+  }
+
+  document.getElementById('alq-det-body').innerHTML = html;
+  document.getElementById('alq-detail').classList.add('open');
+}
+
+function closeAlqDetail() {
+  document.getElementById('alq-detail').classList.remove('open');
+}
+
+// ── Modal: Nuevo / Editar contrato ───────────────────────────────
+function openNuevoContrato() {
+  document.getElementById('ctr-modal-title').textContent = '➕ Nuevo contrato';
+  renderContratoForm(null);
+  document.getElementById('ctr-modal').classList.add('open');
+}
+function openEditContrato(id) {
+  const c = API.getContratos().find(x=>x.id===id);
+  if (!c) return;
+  document.getElementById('ctr-modal-title').textContent = '✏️ Editar contrato';
+  renderContratoForm(c);
+  document.getElementById('ctr-modal').classList.add('open');
+}
+
+function renderContratoForm(c) {
+  const inms = API.getInmuebles();
+  const inmOpts = inms.map(i=>`<option value="${i.id}"${c&&c.inmueble_id===i.id?' selected':''}>${i.localidad} — ${i.direccion.slice(0,40)}</option>`).join('');
+  const isEdit = !!c;
+
+  document.getElementById('ctr-modal-form').innerHTML = `
+    <div class="fg"><label class="fl">Inmueble *</label>
+      <select class="fi fsel" id="cf-inm">${inmOpts}</select></div>
+    <div class="frow">
+      <div class="fg"><label class="fl">Inquilino</label><input class="fi" id="cf-inq" value="${c?.inquilino||''}"></div>
+      <div class="fg"><label class="fl">DNI / NIE</label><input class="fi" id="cf-dni" value="${c?.dni||''}"></div>
+    </div>
+    <div class="frow">
+      <div class="fg"><label class="fl">Teléfono</label><input class="fi" id="cf-tel" value="${c?.telefono||''}"></div>
+      <div class="fg"><label class="fl">Email</label><input class="fi" id="cf-email" value="${c?.email||''}"></div>
+    </div>
+    <div class="frow">
+      <div class="fg"><label class="fl">Fecha inicio *</label><input class="fi" type="date" id="cf-ini" value="${c?.fecha_inicio||''}"></div>
+      <div class="fg"><label class="fl">Fecha fin</label><input class="fi" type="date" id="cf-fin" value="${c?.fecha_fin||''}"></div>
+    </div>
+    <div class="frow">
+      <div class="fg"><label class="fl">Renta mensual (€) *</label><input class="fi" type="number" min="0" id="cf-renta" value="${c?.renta_mensual||''}"></div>
+      <div class="fg"><label class="fl">Periodicidad *</label>
+        <select class="fi fsel" id="cf-per">
+          ${['mensual','trimestral','cuatrimestral','semestral','anual'].map(p=>`<option value="${p}"${c?.periodicidad===p?' selected':''}>${p.charAt(0).toUpperCase()+p.slice(1)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="frow">
+      <div class="fg"><label class="fl">Día habitual de cobro</label><input class="fi" type="number" min="1" max="31" id="cf-dia" value="${c?.dia_cobro||''}"></div>
+      <div class="fg"><label class="fl">Fianza (€)</label><input class="fi" type="number" min="0" id="cf-fianza" value="${c?.fianza||''}"></div>
+    </div>
+    <div class="fg"><label class="fl">Notas</label><textarea class="fi ftxt" id="cf-notas">${c?.notas||''}</textarea></div>
+    ${isEdit?`<input type="hidden" id="cf-id" value="${c.id}">`:''}
+  `;
+}
+
+async function saveContrato() {
+  const inmId  = document.getElementById('cf-inm').value;
+  const ini    = document.getElementById('cf-ini').value;
+  const renta  = parseFloat(document.getElementById('cf-renta').value)||0;
+  const per    = document.getElementById('cf-per').value;
+  if (!inmId || !ini || !renta) { toast('Inmueble, fecha inicio y renta son obligatorios', true); return; }
+
+  const isEdit = !!document.getElementById('cf-id');
+  const id     = isEdit ? document.getElementById('cf-id').value : idContrato();
+
+  const obj = {
+    id, inmueble_id: inmId,
+    inquilino:   document.getElementById('cf-inq').value.trim(),
+    dni:         document.getElementById('cf-dni').value.trim(),
+    telefono:    document.getElementById('cf-tel').value.trim(),
+    email:       document.getElementById('cf-email').value.trim(),
+    fecha_inicio: ini,
+    fecha_fin:   document.getElementById('cf-fin').value || '',
+    renta_mensual: renta,
+    periodicidad: per,
+    dia_cobro:   parseInt(document.getElementById('cf-dia').value)||0,
+    fianza:      parseFloat(document.getElementById('cf-fianza').value)||0,
+    activo:      true,
+    notas:       document.getElementById('cf-notas').value.trim()
+  };
+
+  loading(true);
+  try {
+    if (isEdit) {
+      await API.updateContrato(obj);
+    } else {
+      await API.createContrato(obj);
+      // Generar pagos automáticos
+      const pagos = generarPagos(obj);
+      if (pagos.length) await API.createPagos(pagos);
+    }
+    closeModal('ctr-modal');
+    renderAlquileres();
+    toast('✅ Contrato guardado — ' + (isEdit ? 'actualizado' : pagos?.length + ' pagos generados'));
+  } catch(e) {
+    toast('Error: ' + e.message, true);
+  } finally {
+    loading(false);
+  }
+}
+
+// ── Modal: Baja de contrato ──────────────────────────────────────
+let _bajaId = null;
+function openBajaModal(id) {
+  _bajaId = id;
+  document.getElementById('baja-fecha').value = hoy();
+  document.getElementById('baja-modal').classList.add('open');
+}
+async function confirmarBaja() {
+  const fecha = document.getElementById('baja-fecha').value;
+  if (!fecha) { toast('Selecciona la fecha de baja', true); return; }
+  loading(true);
+  try {
+    await API.bajaContrato(_bajaId, fecha);
+    closeModal('baja-modal');
+    closeAlqDetail();
+    renderAlquileres();
+    toast('✅ Contrato dado de baja · Pagos futuros eliminados');
+  } catch(e) {
+    toast('Error: ' + e.message, true);
+  } finally {
+    loading(false);
+  }
+}
+
+// ── Modal: Registrar cobro ───────────────────────────────────────
+let _pagoId = null;
+function openCobrarModal(id) {
+  _pagoId = id;
+  const p   = API.getPagos().find(x=>x.id===id);
+  const ctr = p ? API.getContratos().find(c=>c.id===p.contrato_id) : null;
+  document.getElementById('cobro-fecha').value    = hoy();
+  document.getElementById('cobro-forma').value    = 'transferencia';
+  document.getElementById('cobro-importe').textContent = p ? fmtE(p.importe) : '';
+  document.getElementById('cobro-vence').textContent  = p ? fmtFecha(p.fecha_vencimiento) : '';
+  document.getElementById('cobro-quien').textContent  = ctr ? ctr.inquilino : '';
+  document.getElementById('cobro-notas').value    = '';
+  document.getElementById('cobro-modal').classList.add('open');
+}
+async function confirmarCobro() {
+  const fecha = document.getElementById('cobro-fecha').value;
+  const forma = document.getElementById('cobro-forma').value;
+  const notas = document.getElementById('cobro-notas').value;
+  if (!fecha) { toast('Indica la fecha de cobro', true); return; }
+  loading(true);
+  try {
+    await API.cobrarPago(_pagoId, fecha, forma, notas);
+    closeModal('cobro-modal');
+    renderAlquileres();
+    toast('✅ Pago registrado como cobrado');
+  } catch(e) {
+    toast('Error: ' + e.message, true);
+  } finally {
+    loading(false);
+  }
+}
+
+function openDetallePago(id) {
+  const p = API.getPagos().find(x=>x.id===id);
+  if (p) openDetalleContrato(p.contrato_id);
+}

@@ -166,3 +166,47 @@ input,select,textarea{font-family:inherit}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:2px}
+
+/* ── Alquileres ─────────────────────────────────────────────── */
+.avisos-badge{position:absolute;top:4px;right:calc(50% - 22px);background:var(--red);color:#fff;font-size:9px;font-weight:700;min-width:16px;height:16px;border-radius:8px;padding:0 4px;align-items:center;justify-content:center;line-height:16px}
+.nav-tab{position:relative}
+
+.alq-section{margin-bottom:18px}
+.alq-sec-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--txt3);padding:10px 0 8px;display:flex;align-items:center;justify-content:space-between}
+.alq-empty{background:var(--sur);border:1px solid var(--bdr);border-radius:var(--r);padding:20px;text-align:center;color:var(--txt3);font-size:13px}
+
+.alq-card{background:var(--sur);border:1px solid var(--bdr);border-radius:var(--r);padding:13px;margin-bottom:8px;cursor:pointer;transition:background .15s}
+.alq-card:active{background:var(--sur2)}
+.aviso-card{border-left:3px solid var(--red)}
+.contrato-card{border-left:3px solid var(--grn)}
+.contrato-inactivo{border-left:3px solid var(--bdr);opacity:.7}
+.alq-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.alq-card-title{font-size:14px;font-weight:600;margin-bottom:3px}
+.alq-card-sub{font-size:11px;color:var(--txt2);line-height:1.4}
+.alq-importe{font-size:15px;font-weight:700;color:var(--txt);margin-top:2px}
+.alq-fecha{font-size:11px;color:var(--txt3);margin-top:2px}
+.alq-stats{display:flex;gap:14px;margin-top:9px;padding-top:9px;border-top:1px solid var(--bdr);font-size:11px;color:var(--txt2)}
+.alq-stats strong{color:var(--txt)}
+.alq-card-btns{display:flex;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--bdr)}
+
+.abtn{padding:7px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--bdr);background:var(--sur2);color:var(--txt)}
+.abtn:active{opacity:.75}
+.abtn-cobrar{background:rgba(34,197,94,.12);color:var(--grn);border-color:rgba(34,197,94,.3)}
+.abtn-ver{color:var(--txt2)}
+.abtn-new{background:var(--acc);color:#fff;border:none;padding:5px 12px;font-size:11px;border-radius:8px}
+
+.badge-cobrado{background:rgba(34,197,94,.12);color:var(--grn)}
+.badge-proximo{background:rgba(234,179,8,.12);color:var(--ylw)}
+.badge-vencido{background:rgba(239,68,68,.12);color:var(--red)}
+.badge-pendiente{background:rgba(80,89,112,.2);color:var(--txt3)}
+
+.pago-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--bdr)}
+.pago-row:last-child{border-bottom:none}
+
+.slide-screen{position:absolute;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column;transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1)}
+.slide-screen.open{transform:translateX(0)}
+
+.det-hero{background:linear-gradient(135deg,var(--sur),var(--sur2));border:1px solid var(--bdr);border-radius:var(--r);padding:16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.det-tipo{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--acc);margin-bottom:4px}
+.det-title{font-family:'Syne',sans-serif;font-size:17px;font-weight:700}
+.det-sub{font-size:12px;color:var(--txt2);margin-top:3px}
