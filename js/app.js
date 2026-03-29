@@ -25,7 +25,8 @@ function switchTab(tab){
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('screen-'+tab).classList.add('active');
   document.getElementById('tab-'+tab).classList.add('active');
-  if(tab==='alq') renderAlquileres();
+  if(tab==='avisos') renderAvisos();
+  if(tab==='alq')    renderAlquileres();
   if(tab==='finance') renderFinance();
 }
 
