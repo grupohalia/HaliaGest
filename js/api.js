@@ -1,5 +1,6 @@
 // ================================================================
 // api.js  — Google Apps Script via JSONP (sin problemas de CORS)
+// Compatible con URLs /exec y con URLs googleusercontent.com
 // ================================================================
 const API = (() => {
 
@@ -7,38 +8,44 @@ const API = (() => {
   let _seeded = false;
 
   function gasUrl() { return (window.GAS_URL || '').trim(); }
-  function isConfigured() { return gasUrl().startsWith('https://script.google.com'); }
+  function isConfigured() {
+    const u = gasUrl();
+    return u.startsWith('https://script.google.com') ||
+           u.startsWith('https://script.googleusercontent.com');
+  }
 
-  // ── JSONP: única forma fiable de llamar GAS desde otro dominio ──
+  // Añade parámetros a una URL que puede o no tener ya '?'
+  function buildUrl(params) {
+    const base = gasUrl();
+    const sep  = base.includes('?') ? '&' : '?';
+    const qs   = Object.entries(params)
+      .map(([k, v]) => encodeURIComponent(k) + '=' +
+        encodeURIComponent(typeof v === 'object' ? JSON.stringify(v) : v))
+      .join('&');
+    return base + sep + qs + '&_t=' + Date.now();
+  }
+
+  // ── JSONP ────────────────────────────────────────────────────
   function jsonp(params) {
     return new Promise((resolve, reject) => {
-      const cbName = '_gcb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+      const cbName = '_gcb' + Date.now() + Math.random().toString(36).slice(2);
 
       const timer = setTimeout(() => {
-        delete window[cbName];
-        if (script.parentNode) script.parentNode.removeChild(script);
-        reject(new Error('Timeout — comprueba que el script está desplegado y el acceso es "Cualquier usuario"'));
+        cleanup();
+        reject(new Error('Timeout — el script no respondió en 15s'));
       }, 15000);
 
-      window[cbName] = (data) => {
-        clearTimeout(timer);
+      function cleanup() {
         delete window[cbName];
         if (script.parentNode) script.parentNode.removeChild(script);
-        resolve(data);
-      };
-
-      const qs = Object.entries({ ...params, callback: cbName, _t: Date.now() })
-        .map(([k, v]) => encodeURIComponent(k) + '=' +
-          encodeURIComponent(typeof v === 'object' ? JSON.stringify(v) : v))
-        .join('&');
-
-      const script = document.createElement('script');
-      script.src = gasUrl() + '?' + qs;
-      script.onerror = () => {
         clearTimeout(timer);
-        delete window[cbName];
-        reject(new Error('Error de red al conectar con Google Apps Script'));
-      };
+      }
+
+      window[cbName] = (data) => { cleanup(); resolve(data); };
+
+      const script    = document.createElement('script');
+      script.src      = buildUrl({ ...params, callback: cbName });
+      script.onerror  = () => { cleanup(); reject(new Error('Error de red — comprueba que el acceso es "Cualquier usuario"')); };
       document.head.appendChild(script);
     });
   }
@@ -56,32 +63,30 @@ const API = (() => {
     if (!result.ok) throw new Error(result.error);
     _data = result.data || [];
 
-    // Seed: si el Sheet está vacío carga los datos iniciales
+    // Seed automático si el Sheet está vacío
     if (_data.length === 0 && !_seeded) {
       _seeded = true;
-      let original;
       try {
-        const res = await fetch('./data/inmuebles.json');
-        original = await res.json();
-      } catch {
-        original = [];
-      }
-      if (original.length > 0) {
-        // Seed en lotes de 50 para no superar límites de URL
-        const BATCH = 50;
-        for (let i = 0; i < original.length; i += BATCH) {
-          const batch  = original.slice(i, i + BATCH);
-          const action = i === 0 ? 'seed' : 'seedAppend';
-          const r = await jsonp({ action, data: batch });
-          if (!r.ok) throw new Error('Error en seed: ' + r.error);
+        const res      = await fetch('./data/inmuebles.json');
+        const original = await res.json();
+        if (original.length > 0) {
+          const BATCH = 50;
+          for (let i = 0; i < original.length; i += BATCH) {
+            const batch  = original.slice(i, i + BATCH);
+            const action = i === 0 ? 'seed' : 'seedAppend';
+            const r      = await jsonp({ action, data: batch });
+            if (!r.ok) throw new Error('Error seed: ' + r.error);
+          }
+          _data = original;
         }
-        _data = original;
+      } catch (e) {
+        console.warn('Seed no disponible:', e.message);
       }
     }
     return _data;
   }
 
-  // ── Crear ─────────────────────────────────────────────────────
+  // ── CRUD ──────────────────────────────────────────────────────
   async function create(obj) {
     if (isConfigured()) {
       const r = await jsonp({ action: 'create', data: obj });
@@ -91,7 +96,6 @@ const API = (() => {
     return _data;
   }
 
-  // ── Actualizar ────────────────────────────────────────────────
   async function update(obj) {
     if (isConfigured()) {
       const r = await jsonp({ action: 'update', data: obj });
@@ -102,7 +106,6 @@ const API = (() => {
     return _data;
   }
 
-  // ── Eliminar ──────────────────────────────────────────────────
   async function remove(id) {
     if (isConfigured()) {
       const r = await jsonp({ action: 'delete', data: { id } });
