@@ -1,53 +1,47 @@
 // ================================================================
 // api.js — Comunicación con Google Apps Script via GET params
-//
-// Por qué GET y no POST:
-// Google Apps Script Web App tiene restricciones de CORS que
-// impiden leer la respuesta de un POST desde un dominio externo.
-// La solución estándar es enviar todo via GET con parámetros,
-// ya que doGet() sí responde correctamente con CORS implícito
-// al ser una URL pública de Google.
+// Lee window.GAS_URL directamente en cada llamada
 // ================================================================
 
 const API = (() => {
 
-  let _url = '';
   let _data = [];
   let _seeded = false;
 
-  function init(gasUrl) {
-    _url = (gasUrl || '').trim();
+  // Lee la URL en cada llamada — así siempre está actualizada
+  function url() {
+    return (window.GAS_URL || '').trim();
   }
 
   function isConfigured() {
-    return _url.startsWith('https://script.google.com');
+    return url().startsWith('https://script.google.com');
   }
 
-  // ── Llamada GET base ─────────────────────────────────────────
+  // ── Llamada GET ──────────────────────────────────────────────
   async function gasCall(params) {
+    const base = url();
     const qs = Object.entries(params)
-      .map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(
-        typeof v === 'object' ? JSON.stringify(v) : v
-      ))
+      .map(([k, v]) => encodeURIComponent(k) + '=' +
+        encodeURIComponent(typeof v === 'object' ? JSON.stringify(v) : String(v)))
       .join('&');
 
-    const url = _url + '?' + qs + '&t=' + Date.now(); // cache buster
+    const fullUrl = base + (qs ? '?' + qs : '') + (qs ? '&' : '?') + '_t=' + Date.now();
 
-    const res = await fetch(url, {
-      method: 'GET',
-      redirect: 'follow'
-    });
-
-    // GAS puede devolver text/plain incluso con setMimeType JSON
+    const res = await fetch(fullUrl, { method: 'GET', redirect: 'follow' });
     const text = await res.text();
+
     try {
       return JSON.parse(text);
     } catch {
-      throw new Error('Respuesta no válida del servidor: ' + text.slice(0, 100));
+      // Si devuelve HTML es probablemente un redirect al login de Google
+      if (text.includes('<html') || text.includes('accounts.google')) {
+        throw new Error('El script redirige al login. Comprueba que "Quién tiene acceso" es "Cualquier usuario".');
+      }
+      throw new Error('Respuesta no válida: ' + text.slice(0, 120));
     }
   }
 
-  // ── Carga inicial ────────────────────────────────────────────
+  // ── Load ─────────────────────────────────────────────────────
   async function load() {
     if (!isConfigured()) {
       const res = await fetch('./data/inmuebles.json');
@@ -55,17 +49,17 @@ const API = (() => {
       return _data;
     }
 
-    // Lee todos los registros del Sheet
     const result = await gasCall({});
     if (!result.ok) throw new Error(result.error);
-    _data = result.data;
+    _data = result.data || [];
 
-    // Si el Sheet está vacío hace el seed automático
+    // Seed automático si el Sheet está vacío
     if (_data.length === 0 && !_seeded) {
       _seeded = true;
       const res = await fetch('./data/inmuebles.json');
       const original = await res.json();
-      await gasCall({ action: 'seed', data: original });
+      const seedResult = await gasCall({ action: 'seed', data: original });
+      if (!seedResult.ok) throw new Error('Error en seed: ' + seedResult.error);
       _data = original;
     }
 
@@ -74,54 +68,40 @@ const API = (() => {
 
   // ── Crear ────────────────────────────────────────────────────
   async function create(obj) {
-    // Actualiza caché local primero (UI instantánea)
-    _data.push(obj);
-
     if (isConfigured()) {
       const result = await gasCall({ action: 'create', data: obj });
-      if (!result.ok) {
-        // Revertir caché si falla
-        _data = _data.filter(p => p.id !== obj.id);
-        throw new Error(result.error);
-      }
+      if (!result.ok) throw new Error(result.error);
     }
+    _data.push(obj);
     return _data;
   }
 
   // ── Actualizar ───────────────────────────────────────────────
   async function update(obj) {
-    // Actualiza caché local primero
-    const idx = _data.findIndex(p => p.id === obj.id);
-    const prev = idx >= 0 ? { ..._data[idx] } : null;
-    if (idx >= 0) _data[idx] = obj;
-
     if (isConfigured()) {
       const result = await gasCall({ action: 'update', data: obj });
-      if (!result.ok) {
-        // Revertir
-        if (idx >= 0 && prev) _data[idx] = prev;
-        throw new Error(result.error);
-      }
+      if (!result.ok) throw new Error(result.error);
     }
+    const idx = _data.findIndex(p => p.id === obj.id);
+    if (idx >= 0) _data[idx] = obj;
     return _data;
   }
 
   // ── Eliminar ─────────────────────────────────────────────────
   async function remove(id) {
-    const prev = [..._data];
-    _data = _data.filter(p => p.id !== id);
-
     if (isConfigured()) {
       const result = await gasCall({ action: 'delete', data: { id } });
-      if (!result.ok) {
-        _data = prev; // revertir
-        throw new Error(result.error);
-      }
+      if (!result.ok) throw new Error(result.error);
     }
+    _data = _data.filter(p => p.id !== id);
     return _data;
   }
 
   function getAll() { return _data; }
 
+  // init() ya no hace falta pero lo dejamos por compatibilidad
+  function init() {}
+
   return { init, load, create, update, remove, getAll, isConfigured };
+
 })();
