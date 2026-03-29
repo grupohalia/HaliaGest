@@ -34,29 +34,67 @@ function importePeriodo(renta, periodicidad) {
   return renta * (MESES_PERIODO[periodicidad] || 1);
 }
 
-// ── Generar pagos automáticos de un contrato ────────────────────
-function generarPagos(contrato) {
-  const pagos = [];
-  const meses = MESES_PERIODO[contrato.periodicidad] || 1;
-  const importe = importePeriodo(contrato.renta_mensual, contrato.periodicidad);
-  let fecha = addMeses(contrato.fecha_inicio, meses);
-  const fin = contrato.fecha_fin || addMeses(contrato.fecha_inicio, 120); // 10 años max si no hay fin
+// ── Calcular el próximo vencimiento de un contrato ──────────────
+// Partiendo de fecha_inicio, avanza periodos hasta encontrar
+// el primer vencimiento que sea >= hoy
+function proximoVencimiento(contrato) {
+  const meses  = MESES_PERIODO[contrato.periodicidad] || 1;
+  const fin    = contrato.fecha_fin || '2099-12-31';
+  let fecha    = addMeses(contrato.fecha_inicio, meses);
 
-  while (fecha <= fin) {
-    pagos.push({
-      id:                idPago(),
-      contrato_id:       contrato.id,
-      inmueble_id:       contrato.inmueble_id,
-      fecha_vencimiento: fecha,
-      importe:           importe,
-      estado:            'pendiente',
-      fecha_cobro:       '',
-      forma_pago:        '',
-      notas:             ''
-    });
+  // Avanzar hasta el primer vencimiento futuro o actual
+  while (fecha < hoy() && fecha <= fin) {
     fecha = addMeses(fecha, meses);
   }
-  return pagos;
+  if (fecha > fin) return null; // contrato terminado
+  return fecha;
+}
+
+// ── Revisar todos los contratos activos y crear pagos pendientes ─
+// Lógica: para cada contrato activo, busca el próximo vencimiento.
+// Si faltan ≤31 días y no existe ya ese pago → lo crea.
+// También marca como "vencido" los pagos pendientes ya pasados.
+async function sincronizarPagos() {
+  const contratos = API.getContratos().filter(c => c.activo === true || c.activo === 'TRUE');
+  const pagosExistentes = API.getPagos();
+  const hoyStr = hoy();
+  const nuevos = [];
+
+  contratos.forEach(c => {
+    const meses   = MESES_PERIODO[c.periodicidad] || 1;
+    const importe = importePeriodo(c.renta_mensual, c.periodicidad);
+    const fin     = c.fecha_fin || '2099-12-31';
+
+    // Calcular el próximo vencimiento del contrato
+    const prox = proximoVencimiento(c);
+    if (!prox) return; // contrato ya terminado
+
+    // Comprobar si ya existe ese pago (evitar duplicados)
+    const yaExiste = pagosExistentes.some(
+      p => p.contrato_id === c.id && p.fecha_vencimiento === prox
+    );
+
+    // Crear solo si faltan ≤31 días y no existe
+    if (!yaExiste && diasHasta(prox) <= 31) {
+      nuevos.push({
+        id:                idPago(),
+        contrato_id:       c.id,
+        inmueble_id:       c.inmueble_id,
+        fecha_vencimiento: prox,
+        importe:           importe,
+        estado:            'pendiente',
+        fecha_cobro:       '',
+        forma_pago:        '',
+        notas:             ''
+      });
+    }
+  });
+
+  // Crear todos los nuevos en una sola llamada
+  if (nuevos.length > 0) {
+    await API.createPagos(nuevos);
+  }
+  return nuevos.length;
 }
 
 // ── Estado de un pago con aviso 30 días ─────────────────────────
@@ -69,7 +107,25 @@ function estadoVisual(pago) {
 }
 
 // ── Render pestaña Alquileres ────────────────────────────────────
-function renderAlquileres() {
+// Primero sincroniza pagos (crea los próximos si faltan ≤31 días)
+// luego renderiza. Se usa una flag para no lanzar dos veces seguidas.
+let _sincronizando = false;
+async function renderAlquileres() {
+  if (!_sincronizando && API.isConfigured()) {
+    _sincronizando = true;
+    try {
+      const n = await sincronizarPagos();
+      if (n > 0) console.log(`[Pagos] ${n} nuevo(s) generado(s)`);
+    } catch(e) {
+      console.warn('[Pagos] Error en sincronización:', e.message);
+    } finally {
+      _sincronizando = false;
+    }
+  }
+  _renderAlquileres();
+}
+
+function _renderAlquileres() {
   const hoyStr  = hoy();
   const contratos = API.getContratos();
   const pagos     = API.getPagos();
@@ -177,7 +233,7 @@ function renderAlquileres() {
   }
 
   document.getElementById('alq-body').innerHTML = html;
-}
+} // end _renderAlquileres
 
 // ── Detalle contrato ─────────────────────────────────────────────
 function openDetalleContrato(id) {
@@ -417,25 +473,25 @@ async function saveContrato() {
     if (isEdit) {
       await API.updateContrato(obj);
     } else {
-      // 1. Crear contrato
-      await API.createContrato(obj);
-
-      // 2. Generar pagos automáticos
-      const pagos = generarPagos(obj);
-      if (pagos.length) { await API.createPagos(pagos); nPagos = pagos.length; }
-
-      // 3. Actualizar inmueble → alquilado + precio_alquiler
+      // 1. Actualizar inmueble PRIMERO → alquilado + precio_alquiler
       const inm = API.getInmuebles().find(i=>i.id===inmId);
       if (inm) {
         const inmActualizado = { ...inm, alquilado: true, precio_alquiler: renta };
         await API.updateInm(inmActualizado);
       }
+
+      // 2. Crear contrato
+      await API.createContrato(obj);
+
+      // 3. Sincronizar: si el primer vencimiento cae en ≤31 días, créalo ya
+      nPagos = await sincronizarPagos();
     }
     closeModal('ctr-modal');
     renderAlquileres();
-    // Refrescar lista inmuebles por si cambia el badge alquilado
     if (typeof renderList === 'function') renderList();
-    toast('✅ Contrato guardado' + (!isEdit ? ` · ${nPagos} pagos generados · Inmueble marcado alquilado` : ' · Actualizado'));
+    const msg = isEdit ? 'Actualizado' :
+      (nPagos > 0 ? `Inmueble marcado alquilado · ${nPagos} pago${nPagos>1?'s':''} generado${nPagos>1?'s':''}` : 'Inmueble marcado alquilado · Primer pago se generará cuando falten ≤31 días');
+    toast('✅ Contrato guardado · ' + msg);
   } catch(e) {
     toast('Error: ' + e.message, true);
   } finally {
