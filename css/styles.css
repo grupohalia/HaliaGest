@@ -285,3 +285,14 @@ input,select,textarea{font-family:inherit}
 .progress-step.done::before { content: '✓'; color: var(--grn); font-size: 12px; }
 @keyframes fadeOut { to { opacity: 0; } }
 .progress-fade-out { animation: fadeOut .4s ease forwards; }
+
+/* ── Pantalla avisos ─────────────────────────────────────────── */
+.avisos-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 30px;text-align:center;gap:12px}
+.avisos-empty-icon{font-size:48px}
+.avisos-empty-title{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:var(--txt)}
+.avisos-empty-sub{font-size:13px;color:var(--txt3);line-height:1.5}
+.aviso-vencido{border-left-color:var(--red)}
+.aviso-proximo{border-left-color:var(--ylw)}
+
+/* Nav 4 pestañas — fuente más pequeña */
+.nav-tab{font-size:9px}
