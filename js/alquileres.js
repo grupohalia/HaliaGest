@@ -582,39 +582,6 @@ async function saveContrato() {
   }
 }
 
-// ── Overlay de progreso ──────────────────────────────────────────
-function showProgress(pasos) {
-  let el = document.getElementById('progress-overlay');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'progress-overlay';
-    document.getElementById('app').appendChild(el);
-  }
-  el.innerHTML = `
-    <div class="progress-box">
-      <div class="progress-spinner"></div>
-      <div class="progress-steps" id="progress-steps">
-        ${pasos.map((p, i) => `<div class="progress-step" id="pstep-${i}">${p}</div>`).join('')}
-      </div>
-    </div>`;
-  el.style.display = 'flex';
-  // Activar el primer paso
-  setProgressStep(0);
-}
-
-function setProgressStep(idx) {
-  document.querySelectorAll('.progress-step').forEach((el, i) => {
-    el.className = 'progress-step' + (i < idx ? ' done' : i === idx ? ' active' : '');
-  });
-}
-
-function hideProgress() {
-  const el = document.getElementById('progress-overlay');
-  if (el) {
-    el.classList.add('progress-fade-out');
-    setTimeout(() => { el.style.display = 'none'; el.classList.remove('progress-fade-out'); }, 400);
-  }
-}
 
 // ── Modal: Baja de contrato ──────────────────────────────────────
 let _bajaId = null;
@@ -626,31 +593,39 @@ function openBajaModal(id) {
 async function confirmarBaja() {
   const fecha = document.getElementById('baja-fecha').value;
   if (!fecha) { toast('Selecciona la fecha de baja', true); return; }
-  loading(true);
-  try {
-    // Obtener el contrato para saber qué inmueble liberar
-    const ctr = API.getContratos().find(c=>c.id===_bajaId);
 
+  const btnBaja = document.querySelector('#baja-modal .btn-d');
+  if (btnBaja) { btnBaja.disabled = true; btnBaja.textContent = '⏳ Procesando...'; }
+  const resetBtn = () => { if(btnBaja){btnBaja.disabled=false;btnBaja.textContent='Confirmar baja';} };
+
+  closeModal('baja-modal');
+  showProgress(['Dando de baja contrato...', 'Liberando inmueble...', 'Eliminando pagos futuros...']);
+
+  try {
+    setProgressStep(0);
+    const ctr = API.getContratos().find(c=>c.id===_bajaId);
     await API.bajaContrato(_bajaId, fecha);
 
-    // Actualizar inmueble → libre + precio_alquiler = 0
+    setProgressStep(1);
     if (ctr) {
       const inm = API.getInmuebles().find(i=>i.id===ctr.inmueble_id);
       if (inm) {
-        const inmActualizado = { ...inm, alquilado: false, precio_alquiler: 0 };
-        await API.updateInm(inmActualizado);
+        await API.updateInm({ ...inm, alquilado: false, precio_alquiler: 0 });
       }
     }
 
-    closeModal('baja-modal');
+    setProgressStep(2);
+    // pequeña pausa visual para que se vea el paso 3
+    await new Promise(r => setTimeout(r, 400));
+
+    hideProgress();
     closeAlqDetail();
     renderAlquileres();
     if (typeof renderList === 'function') renderList();
-    toast('✅ Contrato dado de baja · Inmueble marcado libre · Pagos futuros eliminados');
+    toast('✅ Contrato dado de baja · Inmueble libre · Pagos futuros eliminados');
   } catch(e) {
+    hideProgress(); resetBtn();
     toast('Error: ' + e.message, true);
-  } finally {
-    loading(false);
   }
 }
 
@@ -673,11 +648,17 @@ async function confirmarCobro() {
   const forma = document.getElementById('cobro-forma').value;
   const notas = document.getElementById('cobro-notas').value;
   if (!fecha) { toast('Indica la fecha de cobro', true); return; }
-  loading(true);
+
+  const btnCobro = document.querySelector('#cobro-modal .btn-p');
+  if (btnCobro) { btnCobro.disabled = true; btnCobro.textContent = '⏳ Registrando...'; }
+  const resetBtn = () => { if(btnCobro){btnCobro.disabled=false;btnCobro.textContent='✅ Confirmar cobro';} };
+
+  closeModal('cobro-modal');
+  showProgress(['Registrando cobro...']);
+
   try {
     await API.cobrarPago(_pagoId, fecha, forma, notas);
-    closeModal('cobro-modal');
-    // Refrescar pestaña actual (avisos o alquileres)
+    hideProgress();
     if (document.getElementById('screen-avisos')?.classList.contains('active')) {
       renderAvisos();
     } else {
@@ -686,9 +667,8 @@ async function confirmarCobro() {
     updateAvisosBadge();
     toast('✅ Pago registrado como cobrado');
   } catch(e) {
+    hideProgress(); resetBtn();
     toast('Error: ' + e.message, true);
-  } finally {
-    loading(false);
   }
 }
 

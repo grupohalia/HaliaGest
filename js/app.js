@@ -229,22 +229,52 @@ async function saveProperty(){
     alquilado:alq,precio_alquiler:alq?num('f-alq'):0,
     notas:(document.getElementById('f-notas')?.value||'').trim()
   };
-  loading(true);
+  const btnSave = document.querySelector('#edit-modal .btn-p');
+  if (btnSave) { btnSave.disabled = true; btnSave.textContent = '⏳ Guardando...'; }
+  const resetBtn = () => { if(btnSave){btnSave.disabled=false;btnSave.textContent='💾 Guardar';} };
+
+  closeModal('edit-modal');
+  showProgress(St.isNew ? ['Creando inmueble...'] : ['Actualizando inmueble...']);
+
   try{
-    if(St.isNew){if(API.getAll().find(p=>p.id===ref)){toast('Ya existe esa referencia',true);return;}await API.create(obj);St.currentId=ref;}
-    else{await API.update(obj);}
-    buildLocFilter();renderList();renderFinance();
-    closeModal('edit-modal');toast('✅ Guardado');
-    if(!St.isNew)setTimeout(()=>openDetail(St.currentId),280);
-  }catch(e){toast('Error: '+e.message,true);}finally{loading(false);}
+    if(St.isNew){
+      if(API.getAll().find(p=>p.id===ref)){
+        hideProgress(); resetBtn();
+        toast('Ya existe esa referencia',true); return;
+      }
+      await API.create(obj); St.currentId=ref;
+    } else {
+      await API.update(obj);
+    }
+    buildLocFilter(); renderList(); renderFinance();
+    hideProgress();
+    toast('✅ ' + (St.isNew ? 'Inmueble creado' : 'Inmueble actualizado'));
+    if(!St.isNew) setTimeout(()=>openDetail(St.currentId), 280);
+  } catch(e) {
+    hideProgress(); resetBtn();
+    toast('Error: '+e.message, true);
+  }
 }
 
 // ── Borrar inmueble ───────────────────────────────────────────────
 function confirmDelete(){document.getElementById('confirm-modal').classList.add('open');}
 async function deleteProperty(){
-  loading(true);
-  try{await API.remove(St.currentId);buildLocFilter();renderList();renderFinance();closeModal('confirm-modal');closeDetail();toast('🗑 Inmueble eliminado');}
-  catch(e){toast('Error: '+e.message,true);}finally{loading(false);}
+  const btnDel = document.querySelector('#confirm-modal .btn-d');
+  if (btnDel) { btnDel.disabled = true; btnDel.textContent = '⏳ Eliminando...'; }
+  const resetBtn = () => { if(btnDel){btnDel.disabled=false;btnDel.textContent='Eliminar';} };
+
+  closeModal('confirm-modal');
+  showProgress(['Eliminando inmueble...']);
+  try {
+    await API.remove(St.currentId);
+    buildLocFilter(); renderList(); renderFinance();
+    hideProgress();
+    closeDetail();
+    toast('🗑 Inmueble eliminado');
+  } catch(e) {
+    hideProgress(); resetBtn();
+    toast('Error: '+e.message, true);
+  }
 }
 function closeModal(id){document.getElementById(id).classList.remove('open');}
 
@@ -296,6 +326,40 @@ function renderFinance(){
     <div class="frow2"><div class="flbl">% Ocupación</div><strong>${all.length?Math.round(totAlq/all.length*100):0}%</strong></div>
   </div>`;
   document.getElementById('finance-body').innerHTML=html;
+}
+
+
+// ── Overlay de progreso (compartido por app.js y alquileres.js) ──
+function showProgress(pasos) {
+  let el = document.getElementById('progress-overlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'progress-overlay';
+    document.getElementById('app').appendChild(el);
+  }
+  el.innerHTML = `
+    <div class="progress-box">
+      <div class="progress-spinner"></div>
+      <div class="progress-steps" id="progress-steps">
+        ${pasos.map((p, i) => `<div class="progress-step" id="pstep-${i}">${p}</div>`).join('')}
+      </div>
+    </div>`;
+  el.style.display = 'flex';
+  setProgressStep(0);
+}
+
+function setProgressStep(idx) {
+  document.querySelectorAll('.progress-step').forEach((el, i) => {
+    el.className = 'progress-step' + (i < idx ? ' done' : i === idx ? ' active' : '');
+  });
+}
+
+function hideProgress() {
+  const el = document.getElementById('progress-overlay');
+  if (el) {
+    el.classList.add('progress-fade-out');
+    setTimeout(() => { el.style.display = 'none'; el.classList.remove('progress-fade-out'); }, 400);
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────────────
