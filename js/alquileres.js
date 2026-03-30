@@ -465,6 +465,35 @@ function renderContratoForm(c) {
 }
 
 // Filtrar inmuebles mientras escribe
+// ── Abrir contrato con inmueble preseleccionado (desde pestaña Inmuebles) ──
+function renderContratoFormConInmueble(inmuebleId) {
+  const inm = API.getInmuebles().find(i => i.id === inmuebleId);
+  if (!inm) { renderContratoForm(null); return; }
+
+  // Reutilizar renderContratoForm normal pero con el inmueble bloqueado
+  renderContratoForm(null);
+
+  // Preseleccionar y bloquear el inmueble
+  setTimeout(() => {
+    const hiddenInm = document.getElementById('cf-inm');
+    if (hiddenInm) hiddenInm.value = inmuebleId;
+    const sel = document.getElementById('cf-inm-sel');
+    if (sel) {
+      sel.style.display = 'block';
+      sel.innerHTML = `<span>✅ ${inm.localidad} — ${inm.tipo} — ${inm.direccion.slice(0,45)}</span>
+        <span style="font-size:10px;color:var(--txt3)">(desde edición de inmueble)</span>`;
+    }
+    // Prellenar renta si ya tiene precio_alquiler
+    if (inm.precio_alquiler) {
+      const rentaEl = document.getElementById('cf-renta');
+      if (rentaEl) rentaEl.value = inm.precio_alquiler;
+    }
+    // Fecha inicio = hoy por defecto
+    const iniEl = document.getElementById('cf-ini');
+    if (iniEl && !iniEl.value) iniEl.value = hoy();
+  }, 50);
+}
+
 function filtrarInmuebles() {
   const q = (document.getElementById('cf-inm-search').value||'').toLowerCase();
   const lista = window._inmListData || [];
