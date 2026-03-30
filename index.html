@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0a0c10">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>HaliaGest</title>
+  <title>GestorFincas</title>
   <link rel="stylesheet" href="css/styles.css">
   <script>
     window.GAS_URL = 'https://script.google.com/macros/s/AKfycbxMu22YYP-kkAlALCZas3PX_qgpTYZqOHlvlYuYdyIwawHeEEMgVJhgWfdpXtO_TLuv/exec';
@@ -16,89 +16,117 @@
 <div id="app">
   <div id="loading-bar"></div>
 
-  <header class="header" id="main-header">
-    <div class="hbrand">
-      <div class="htitle">Halia</div>
-      <div class="hsub">Gestión de inmuebles</div>
-    </div>
-    <button class="hadd" onclick="openNewModal()">+</button>
-  </header>
-
-  <div id="api-banner">
-    <span>⚡ Modo demo — configura GAS_URL en index.html</span>
-    <button onclick="this.parentElement.style.display='none'">✕</button>
-  </div>
-
-  <!-- LISTADO -->
-  <div class="screen active" id="screen-list">
-    <div class="search-box">
-      <div class="swrap">
-        <span>🔍</span>
-        <input type="text" id="search-input" placeholder="Buscar dirección, referencia, localidad..." autocomplete="off">
-        <button id="search-clear" class="sclear" onclick="clearSearch()">✕</button>
+  <!-- ══ SIDEBAR NAV (desktop) / BOTTOM NAV (mobile) ══ -->
+  <nav class="nav-tabs" id="nav-tabs">
+    <!-- Brand — visible solo en desktop via CSS -->
+    <div id="sidebar-brand">
+      <div>
+        <div class="htitle">GestorFincas</div>
+        <div class="hsub">Gestión de inmuebles</div>
       </div>
     </div>
-    <div class="filters" id="filters-tipo">
-      <button class="filter-chip active" onclick="setFiltroTipo(this,'')">Todos</button>
-      <button class="filter-chip" onclick="setFiltroTipo(this,'Vivienda')">🏠 Viviendas</button>
-      <button class="filter-chip" onclick="setFiltroTipo(this,'Garaje')">🚗 Garajes</button>
-      <button class="filter-chip" onclick="setFiltroTipo(this,'Trastero')">📦 Trasteros</button>
-      <button class="filter-chip" onclick="setFiltroTipo(this,'Local')">🏪 Locales</button>
-    </div>
-    <div class="filters" id="filters-loc"></div>
-    <div class="filters" id="filters-estado">
-      <button class="filter-chip active" onclick="setFiltroEstado(this,'')">Todos</button>
-      <button class="filter-chip" onclick="setFiltroEstado(this,'alquilado')">✅ Alquilados</button>
-      <button class="filter-chip" onclick="setFiltroEstado(this,'libre')">⬜ Libres</button>
-    </div>
-    <div id="stats-row" class="stats-row"></div>
-    <div class="scroll-area"><div class="list-section" id="list-container"></div></div>
-  </div>
-
-  <!-- AVISOS -->
-  <div class="screen" id="screen-avisos">
-    <div class="scroll-area">
-      <div style="padding:14px 14px 80px" id="avisos-body"></div>
-    </div>
-  </div>
-
-  <!-- ALQUILERES -->
-  <div class="screen" id="screen-alq">
-    <div class="scroll-area">
-      <div style="padding:14px 14px 80px" id="alq-body"></div>
-    </div>
-  </div>
-
-  <!-- FINANZAS -->
-  <div class="screen" id="screen-finance">
-    <div class="fin-scroll">
-      <div class="period-toggle">
-        <button class="period-btn active" onclick="setPeriod('mensual',this)">Mensual</button>
-        <button class="period-btn" onclick="setPeriod('anual',this)">Anual</button>
-      </div>
-      <div class="kpi-grid" id="kpi-grid"></div>
-      <div id="finance-body"></div>
-    </div>
-  </div>
-
-  <!-- NAV -->
-  <nav class="nav-tabs">
     <button class="nav-tab active" id="tab-list" onclick="switchTab('list')">
-      <span class="ni">🏠</span>Inmuebles
+      <span class="ni">🏠</span><span class="nav-label">Inmuebles</span>
     </button>
     <button class="nav-tab" id="tab-avisos" onclick="switchTab('avisos')">
-      <span class="ni">🔔</span>Avisos
+      <span class="ni">🔔</span><span class="nav-label">Avisos</span>
       <span id="avisos-badge" class="avisos-badge" style="display:none"></span>
     </button>
     <button class="nav-tab" id="tab-alq" onclick="switchTab('alq')">
-      <span class="ni">🔑</span>Contratos
+      <span class="ni">🔑</span><span class="nav-label">Contratos</span>
     </button>
     <button class="nav-tab" id="tab-finance" onclick="switchTab('finance')">
-      <span class="ni">📊</span>Finanzas
+      <span class="ni">📊</span><span class="nav-label">Finanzas</span>
     </button>
   </nav>
 
-  <!-- DETALLE INMUEBLE -->
+  <!-- ══ MAIN CONTENT WRAPPER ══ -->
+  <div id="main-content">
+
+    <!-- Banner API demo -->
+    <div id="api-banner">
+      <span>⚡ Modo demo — configura GAS_URL en index.html</span>
+      <button onclick="this.parentElement.style.display='none'">✕</button>
+    </div>
+
+    <!-- Header móvil (oculto en desktop) -->
+    <header class="header" id="main-header">
+      <div class="hbrand">
+        <div class="htitle">GestorFincas</div>
+        <div class="hsub">Gestión de inmuebles</div>
+      </div>
+      <button class="hadd" onclick="openNewModal()">+</button>
+    </header>
+
+    <!-- ── LISTADO ── -->
+    <div class="screen active" id="screen-list">
+      <div class="search-box" style="display:flex;align-items:center;gap:10px">
+        <div class="swrap" style="flex:1">
+          <span>🔍</span>
+          <input type="text" id="search-input" placeholder="Buscar dirección, referencia, localidad..." autocomplete="off">
+          <button id="search-clear" class="sclear" onclick="clearSearch()">✕</button>
+        </div>
+        <!-- Botón nuevo inmueble en desktop (en header móvil lo tiene) -->
+        <button class="hadd desktop-only" onclick="openNewModal()" title="Nuevo inmueble" style="display:none">+</button>
+      </div>
+      <div class="filters" id="filters-tipo">
+        <button class="filter-chip active" onclick="setFiltroTipo(this,'')">Todos</button>
+        <button class="filter-chip" onclick="setFiltroTipo(this,'Vivienda')">🏠 Viviendas</button>
+        <button class="filter-chip" onclick="setFiltroTipo(this,'Garaje')">🚗 Garajes</button>
+        <button class="filter-chip" onclick="setFiltroTipo(this,'Trastero')">📦 Trasteros</button>
+        <button class="filter-chip" onclick="setFiltroTipo(this,'Local')">🏪 Locales</button>
+      </div>
+      <div class="filters" id="filters-loc"></div>
+      <div class="filters" id="filters-estado">
+        <button class="filter-chip active" onclick="setFiltroEstado(this,'')">Todos</button>
+        <button class="filter-chip" onclick="setFiltroEstado(this,'alquilado')">✅ Alquilados</button>
+        <button class="filter-chip" onclick="setFiltroEstado(this,'libre')">⬜ Libres</button>
+      </div>
+      <div id="stats-row" class="stats-row"></div>
+      <div class="scroll-area"><div class="list-section" id="list-container"></div></div>
+    </div>
+
+    <!-- ── AVISOS ── -->
+    <div class="screen" id="screen-avisos">
+      <div class="search-box" style="display:flex;align-items:center;justify-content:space-between">
+        <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700">🔔 Avisos</div>
+      </div>
+      <div class="scroll-area">
+        <div style="padding:14px 14px 80px" id="avisos-body"></div>
+      </div>
+    </div>
+
+    <!-- ── CONTRATOS ── -->
+    <div class="screen" id="screen-alq">
+      <div class="search-box" style="display:flex;align-items:center;justify-content:space-between">
+        <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700">🔑 Contratos</div>
+      </div>
+      <div class="scroll-area">
+        <div style="padding:14px 14px 80px" id="alq-body"></div>
+      </div>
+    </div>
+
+    <!-- ── FINANZAS ── -->
+    <div class="screen" id="screen-finance">
+      <div class="search-box">
+        <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700">📊 Finanzas</div>
+      </div>
+      <div class="fin-scroll">
+        <div style="height:14px"></div>
+        <div class="period-toggle">
+          <button class="period-btn active" onclick="setPeriod('mensual',this)">Mensual</button>
+          <button class="period-btn" onclick="setPeriod('anual',this)">Anual</button>
+        </div>
+        <div class="kpi-grid" id="kpi-grid"></div>
+        <div id="finance-body"></div>
+      </div>
+    </div>
+
+  </div><!-- /main-content -->
+
+  <!-- ══ DETAIL PANELS ══ -->
+
+  <!-- Detalle inmueble -->
   <div id="detail-screen">
     <header class="header">
       <button class="hback" onclick="closeDetail()">←</button>
@@ -112,7 +140,7 @@
     </div>
   </div>
 
-  <!-- DETALLE CONTRATO -->
+  <!-- Detalle contrato -->
   <div id="alq-detail" class="slide-screen">
     <header class="header">
       <button class="hback" onclick="closeAlqDetail()">←</button>
@@ -121,7 +149,8 @@
     <div class="detail-body" id="alq-det-body"></div>
   </div>
 
-  <!-- MODAL: EDITAR INMUEBLE -->
+  <!-- ══ MODALS ══ -->
+
   <div class="modal-overlay" id="edit-modal">
     <div class="modal">
       <div class="mhandle"></div>
@@ -134,7 +163,6 @@
     </div>
   </div>
 
-  <!-- MODAL: NUEVO/EDITAR CONTRATO -->
   <div class="modal-overlay" id="ctr-modal">
     <div class="modal">
       <div class="mhandle"></div>
@@ -147,7 +175,6 @@
     </div>
   </div>
 
-  <!-- MODAL: BAJA CONTRATO -->
   <div class="modal-overlay" id="baja-modal">
     <div class="modal">
       <div class="mhandle"></div>
@@ -167,7 +194,6 @@
     </div>
   </div>
 
-  <!-- MODAL: REGISTRAR COBRO -->
   <div class="modal-overlay" id="cobro-modal">
     <div class="modal">
       <div class="mhandle"></div>
@@ -197,7 +223,6 @@
     </div>
   </div>
 
-  <!-- MODAL: CONFIRMAR BORRAR INMUEBLE -->
   <div class="modal-overlay" id="confirm-modal">
     <div class="modal">
       <div class="mhandle"></div>
