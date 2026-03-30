@@ -363,8 +363,23 @@ function hideProgress() {
 }
 
 // ── Init ──────────────────────────────────────────────────────────
+function applyResponsiveLayout() {
+  const isDesktop = window.innerWidth >= 768;
+  // Desktop: show + button in search bar, hide mobile header
+  const mobileHeader = document.getElementById('main-header');
+  const desktopBtn   = document.querySelector('.desktop-only');
+  const sidebarBrand = document.getElementById('sidebar-brand');
+  if (mobileHeader) mobileHeader.style.display = isDesktop ? 'none' : '';
+  if (desktopBtn)   desktopBtn.style.display    = isDesktop ? 'flex' : 'none';
+  if (sidebarBrand) sidebarBrand.style.display  = isDesktop ? 'flex' : 'none';
+  // On mobile, modal overlays are inside #app (position:absolute)
+  // On desktop, they're position:fixed so they cover everything — no change needed
+}
+
 async function init(){
   API.init(window.GAS_URL||'');
+  applyResponsiveLayout();
+  window.addEventListener('resize', applyResponsiveLayout);
   loading(true);
   try{
     await API.load();
