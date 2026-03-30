@@ -161,12 +161,16 @@ function openEditModal(){
   const p=API.getAll().find(x=>x.id===St.currentId);
   if(!p)return;
   document.getElementById('modal-title').textContent='✏️ Editar Inmueble';
-  renderForm(p);document.getElementById('edit-modal').classList.add('open');
+  renderForm(p);
+  const _b=document.querySelector('#edit-modal .btn-p'); if(_b){_b.disabled=false;_b.textContent='💾 Guardar';}
+  document.getElementById('edit-modal').classList.add('open');
 }
 function openNewModal(){
   St.isNew=true;St.currentId=null;
   document.getElementById('modal-title').textContent='➕ Nuevo Inmueble';
-  renderForm(null);document.getElementById('edit-modal').classList.add('open');
+  renderForm(null);
+  const _b=document.querySelector('#edit-modal .btn-p'); if(_b){_b.disabled=false;_b.textContent='💾 Guardar';}
+  document.getElementById('edit-modal').classList.add('open');
 }
 function renderForm(p){
   const locs=[...new Set(API.getAll().map(x=>x.localidad))].sort();
@@ -197,7 +201,21 @@ function renderForm(p){
       <div class="fg"><label class="fl">IBI anual (€)</label><input class="fi" type="number" min="0" id="f-ibi" value="${p?.ibi||''}"></div>
     </div>
     <div class="fg"><label class="fl">Basuras anuales (€)</label><input class="fi" type="number" min="0" id="f-bas" value="${p?.basuras||''}"></div>
-    <div class="fg"><div class="toggle-row"><span>¿Está alquilado?</span><div class="toggle${alq?' on':''}" id="f-alq-tog" onclick="toggleAlq()"></div></div></div>
+    <div class="fg">
+      ${alq && !St.isNew
+        ? `<div class="toggle-row" style="opacity:.6;cursor:default">
+            <div>
+              <span>¿Está alquilado?</span>
+              <div style="font-size:11px;color:var(--txt3);margin-top:3px">Para dar de baja, usa el botón en el contrato</div>
+            </div>
+            <div class="toggle on" style="cursor:default;pointer-events:none"></div>
+          </div>
+          <input type="hidden" id="f-alq-tog-state" value="on">`
+        : `<div class="toggle-row"><span>¿Está alquilado?</span>
+            <div class="toggle${alq?' on':''}" id="f-alq-tog" onclick="toggleAlq()"></div>
+           </div>`
+      }
+    </div>
     <div id="f-alq-wrap" style="display:${alq?'block':'none'}">
       <div class="fg"><label class="fl">Alquiler mensual (€)</label><input class="fi" type="number" min="0" id="f-alq" value="${p?.precio_alquiler||''}"></div>
     </div>
@@ -206,7 +224,19 @@ function renderForm(p){
       <input class="fi${!St.isNew?' fdim':''}" id="f-ref" value="${p?.referencia_catastral||''}" ${!St.isNew?'readonly':''} placeholder="Referencia catastral"></div>`;
 }
 function chkNuevaLoc(sel){document.getElementById('f-nueva-wrap').style.display=sel.value==='__nueva__'?'block':'none';}
-function toggleAlq(){const t=document.getElementById('f-alq-tog');t.classList.toggle('on');document.getElementById('f-alq-wrap').style.display=t.classList.contains('on')?'block':'none';}
+function toggleAlq(){
+  const t=document.getElementById('f-alq-tog');
+  if(!t)return;
+  t.classList.toggle('on');
+  document.getElementById('f-alq-wrap').style.display=t.classList.contains('on')?'block':'none';
+}
+// Returns true if toggle is ON (alquilado), supports both toggle and hidden input
+function isAlqToggleOn(){
+  const tog=document.getElementById('f-alq-tog');
+  const hid=document.getElementById('f-alq-tog-state');
+  if(hid) return hid.value==='on';
+  return tog ? tog.classList.contains('on') : false;
+}
 
 async function saveProperty(){
   const dir=(document.getElementById('f-dir')?.value||'').trim();
@@ -215,9 +245,12 @@ async function saveProperty(){
   if(!ref){toast('La referencia catastral es obligatoria',true);return;}
   let loc=document.getElementById('f-loc').value;
   if(loc==='__nueva__'){loc=(document.getElementById('f-nueva-loc')?.value||'').trim();if(!loc){toast('Escribe el nombre de la localidad',true);return;}}
-  const alq=document.getElementById('f-alq-tog').classList.contains('on');
+  const alq=isAlqToggleOn();
   const num=id=>parseFloat(document.getElementById(id)?.value)||0;
   const existing=API.getAll().find(p=>p.id===ref);
+  // Detectar si cambia de libre → alquilado (solo en edición)
+  const eraAlquilado = existing?.alquilado === true || existing?.alquilado === 'TRUE';
+  const pasaAAlquilado = !St.isNew && !eraAlquilado && alq;
   const obj={
     id:ref,referencia_catastral:ref,direccion:dir,localidad:loc,
     tipo:document.getElementById('f-tipo').value,
@@ -248,8 +281,19 @@ async function saveProperty(){
     }
     buildLocFilter(); renderList(); renderFinance();
     hideProgress();
-    toast('✅ ' + (St.isNew ? 'Inmueble creado' : 'Inmueble actualizado'));
-    if(!St.isNew) setTimeout(()=>openDetail(St.currentId), 280);
+    if(pasaAAlquilado) {
+      // Abrir modal de nuevo contrato con este inmueble preseleccionado
+      toast('✅ Inmueble actualizado · Abriendo formulario de contrato...');
+      setTimeout(() => {
+        closeDetail();
+        document.getElementById('ctr-modal-title').textContent = '➕ Nuevo contrato';
+        renderContratoFormConInmueble(ref);
+        document.getElementById('ctr-modal').classList.add('open');
+      }, 400);
+    } else {
+      toast('✅ ' + (St.isNew ? 'Inmueble creado' : 'Inmueble actualizado'));
+      if(!St.isNew) setTimeout(()=>openDetail(St.currentId), 280);
+    }
   } catch(e) {
     hideProgress(); resetBtn();
     toast('Error: '+e.message, true);
@@ -257,7 +301,10 @@ async function saveProperty(){
 }
 
 // ── Borrar inmueble ───────────────────────────────────────────────
-function confirmDelete(){document.getElementById('confirm-modal').classList.add('open');}
+function confirmDelete(){
+  const _b=document.querySelector('#confirm-modal .btn-d'); if(_b){_b.disabled=false;_b.textContent='Eliminar';}
+  document.getElementById('confirm-modal').classList.add('open');
+}
 async function deleteProperty(){
   const btnDel = document.querySelector('#confirm-modal .btn-d');
   if (btnDel) { btnDel.disabled = true; btnDel.textContent = '⏳ Eliminando...'; }

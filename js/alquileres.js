@@ -379,6 +379,7 @@ function closeAlqDetail() {
 function openNuevoContrato() {
   document.getElementById('ctr-modal-title').textContent = '➕ Nuevo contrato';
   renderContratoForm(null);
+  _resetCtrModalBtn();
   document.getElementById('ctr-modal').classList.add('open');
 }
 function openEditContrato(id) {
@@ -386,7 +387,13 @@ function openEditContrato(id) {
   if (!c) return;
   document.getElementById('ctr-modal-title').textContent = '✏️ Editar contrato';
   renderContratoForm(c);
+  _resetCtrModalBtn();
   document.getElementById('ctr-modal').classList.add('open');
+}
+
+function _resetCtrModalBtn() {
+  const btn = document.querySelector('#ctr-modal .btn-p');
+  if (btn) { btn.disabled = false; btn.textContent = '💾 Guardar'; }
 }
 
 function renderContratoForm(c) {
@@ -595,6 +602,7 @@ async function saveContrato() {
     }
 
     hideProgress();
+    _resetCtrModalBtn(); // siempre resetear al terminar
     renderAlquileres();
     if (typeof renderList === 'function') renderList();
     const msg = isEdit ? 'Actualizado' :
@@ -604,10 +612,8 @@ async function saveContrato() {
     toast('✅ Contrato guardado · ' + msg);
   } catch(e) {
     hideProgress();
+    _resetCtrModalBtn();
     toast('Error: ' + e.message, true);
-    // Rehabilitar botón si hay error
-    const btn = document.querySelector('#ctr-modal .btn-p');
-    if (btn) { btn.disabled = false; btn.textContent = '💾 Guardar'; }
   }
 }
 
@@ -617,6 +623,8 @@ let _bajaId = null;
 function openBajaModal(id) {
   _bajaId = id;
   document.getElementById('baja-fecha').value = hoy();
+  const btnB = document.querySelector('#baja-modal .btn-d');
+  if (btnB) { btnB.disabled = false; btnB.textContent = 'Confirmar baja'; }
   document.getElementById('baja-modal').classList.add('open');
 }
 async function confirmarBaja() {
@@ -670,6 +678,8 @@ function openCobrarModal(id) {
   document.getElementById('cobro-vence').textContent  = p ? fmtFecha(p.fecha_vencimiento) : '';
   document.getElementById('cobro-quien').textContent  = ctr ? ctr.inquilino : '';
   document.getElementById('cobro-notas').value    = '';
+  const btnC = document.querySelector('#cobro-modal .btn-p');
+  if (btnC) { btnC.disabled = false; btnC.textContent = '✅ Confirmar cobro'; }
   document.getElementById('cobro-modal').classList.add('open');
 }
 async function confirmarCobro() {
