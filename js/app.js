@@ -462,4 +462,8 @@ function updateAvisosBadge(){
   if(badge){badge.textContent=n||'';badge.style.display=n?'inline-flex':'none';}
 }
 
-document.addEventListener('DOMContentLoaded',init);
+document.addEventListener('DOMContentLoaded', () => {
+  // Solo inicializar si el usuario está autenticado
+  if (typeof isAuthenticated === 'function' && !isAuthenticated()) return;
+  init();
+});
