@@ -34,6 +34,17 @@ function switchTab(tab){
 function buildLocFilter(){
   const locs=[...new Set(API.getAll().map(p=>p.localidad))].sort();
   const el=document.getElementById('filters-loc');
+
+  // En desktop (>=768px) usamos un select, en móvil chips
+  if(window.innerWidth>=768){
+    el.innerHTML=`<select class="fi fsel loc-select" onchange="setFiltroLocSelect(this)">
+      <option value="">📍 Todas las localidades</option>
+      ${locs.map(l=>`<option value="${l}"${St.filtroLoc===l?' selected':''}>${l}</option>`).join('')}
+    </select>`;
+    return;
+  }
+
+  // Móvil: chips horizontales
   el.innerHTML='';
   [['','Todas'],...locs.map(l=>[l,l])].forEach(([val,label])=>{
     const b=document.createElement('button');
@@ -42,6 +53,10 @@ function buildLocFilter(){
     b.onclick=()=>{St.filtroLoc=val;refreshChips('filters-loc',b);renderList();};
     el.appendChild(b);
   });
+}
+function setFiltroLocSelect(sel){
+  St.filtroLoc=sel.value;
+  renderList();
 }
 function refreshChips(cid,active){document.querySelectorAll('#'+cid+' .filter-chip').forEach(c=>c.classList.remove('active'));active.classList.add('active');}
 function setFiltroTipo(el,val){St.filtroTipo=val;refreshChips('filters-tipo',el);renderList();}
@@ -128,6 +143,14 @@ function openDetail(id){
         <div class="detail-loc">📍 ${p.localidad}</div>
       </div>
     </div>
+    ${p.propietario_nombre?`<div class="card">
+      <div class="card-title">👤 Propietario</div>
+      <div class="row"><span class="lbl">Nombre</span><span class="val">${p.propietario_nombre}</span></div>
+      ${p.propietario_dni?`<div class="row"><span class="lbl">DNI / CIF</span><span class="val">${p.propietario_dni}</span></div>`:''}
+      ${p.propietario_telefono?`<div class="row"><span class="lbl">Teléfono</span><span class="val">${p.propietario_telefono}</span></div>`:''}
+      ${p.propietario_email?`<div class="row"><span class="lbl">Email</span><span class="val" style="font-size:12px">${p.propietario_email}</span></div>`:''}
+      ${p.propietario_dir?`<div class="row"><span class="lbl">Dirección</span><span class="val" style="font-size:12px">${p.propietario_dir}</span></div>`:''}
+    </div>`:''}
     <div class="card">
       <div class="card-title">🏛 Datos catastrales</div>
       <div class="row"><span class="lbl">Ref. catastral</span><span class="val blue mono">${p.referencia_catastral}</span></div>
@@ -164,6 +187,7 @@ function openEditModal(){
   renderForm(p);
   const _b=document.querySelector('#edit-modal .btn-p'); if(_b){_b.disabled=false;_b.textContent='💾 Guardar';}
   document.getElementById('edit-modal').classList.add('open');
+  initPropietarioSearch();
 }
 function openNewModal(){
   St.isNew=true;St.currentId=null;
@@ -171,6 +195,7 @@ function openNewModal(){
   renderForm(null);
   const _b=document.querySelector('#edit-modal .btn-p'); if(_b){_b.disabled=false;_b.textContent='💾 Guardar';}
   document.getElementById('edit-modal').classList.add('open');
+  initPropietarioSearch();
 }
 function renderForm(p){
   const locs=[...new Set(API.getAll().map(x=>x.localidad))].sort();
@@ -221,9 +246,130 @@ function renderForm(p){
     </div>
     <div class="fg"><label class="fl">Notas</label><textarea class="fi ftxt" id="f-notas">${p?.notas||''}</textarea></div>
     <div class="fg"><label class="fl">Ref. Catastral${St.isNew?' *':''}</label>
-      <input class="fi${!St.isNew?' fdim':''}" id="f-ref" value="${p?.referencia_catastral||''}" ${!St.isNew?'readonly':''} placeholder="Referencia catastral"></div>`;
+      <input class="fi${!St.isNew?' fdim':''}" id="f-ref" value="${p?.referencia_catastral||''}" ${!St.isNew?'readonly':''} placeholder="Referencia catastral"></div>
+    <div class="fg prop-sep"><div class="prop-sep-line"><span>👤 Propietario</span></div></div>
+    ${renderPropietarioField(p)}`;
 }
 function chkNuevaLoc(sel){document.getElementById('f-nueva-wrap').style.display=sel.value==='__nueva__'?'block':'none';}
+
+// ── Propietario ───────────────────────────────────────────────────
+function renderPropietarioField(p) {
+  const propios = getPropietarios();
+  const sel = p?.propietario_id || '';
+  const selObj = propios.find(x=>x.id===sel);
+
+  return `
+    <div class="prop-search-wrap">
+      <input class="fi" type="text" id="f-prop-search"
+        placeholder="Buscar propietario por nombre o DNI/CIF..."
+        oninput="filtrarPropietarios()"
+        autocomplete="off">
+      <input type="hidden" id="f-prop-id" value="${sel}">
+    </div>
+    ${selObj
+      ? `<div class="inm-selected" id="f-prop-sel">
+          <span>✅ ${selObj.nombre}${selObj.dni?' · '+selObj.dni:''}</span>
+          <button onclick="deseleccionarPropietario()" class="inm-desel">✕</button>
+        </div>`
+      : `<div class="inm-selected" id="f-prop-sel" style="display:none"></div>`
+    }
+    <div class="inm-list" id="f-prop-list" style="display:none">
+      ${propios.map(pr=>`
+        <div class="inm-list-item" onclick="seleccionarPropietario('${pr.id}','${(pr.nombre||'').replace(/'/g,'')}','${(pr.dni||'').replace(/'/g,'')}')">
+          <div class="inm-list-loc">${pr.nombre||'—'} ${pr.dni?'<span class=\'badge badge-sup\'>'+pr.dni+'</span>':''}</div>
+          <div class="inm-list-dir">${[pr.telefono,pr.email].filter(Boolean).join(' · ')}</div>
+        </div>`).join('')}
+      <div class="inm-list-item inm-list-new" onclick="toggleNuevoPropietario()">
+        <div class="inm-list-loc" style="color:var(--acc)">+ Crear nuevo propietario</div>
+      </div>
+    </div>
+    <div id="f-prop-nuevo" style="display:none">
+      <div class="frow" style="margin-top:8px">
+        <div class="fg"><label class="fl">Nombre *</label><input class="fi" id="f-pnombre" placeholder="Nombre completo"></div>
+        <div class="fg"><label class="fl">DNI / CIF</label><input class="fi" id="f-pdni" placeholder="12345678A"></div>
+      </div>
+      <div class="frow">
+        <div class="fg"><label class="fl">Teléfono</label><input class="fi" id="f-ptel" placeholder="600 000 000"></div>
+        <div class="fg"><label class="fl">Email</label><input class="fi" id="f-pemail" placeholder="correo@ejemplo.com"></div>
+      </div>
+      <div class="fg"><label class="fl">Dirección</label><input class="fi" id="f-pdir" placeholder="Calle, número, ciudad"></div>
+    </div>`;
+}
+
+function getPropietarios() {
+  // Extrae propietarios únicos de los inmuebles existentes
+  const map = {};
+  API.getAll().forEach(p => {
+    if (p.propietario_id && p.propietario_nombre) {
+      map[p.propietario_id] = {
+        id:       p.propietario_id,
+        nombre:   p.propietario_nombre   || '',
+        dni:      p.propietario_dni      || '',
+        telefono: p.propietario_telefono || '',
+        email:    p.propietario_email    || '',
+        direccion:p.propietario_dir      || '',
+      };
+    }
+  });
+  return Object.values(map).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+}
+
+function filtrarPropietarios() {
+  const q = (document.getElementById('f-prop-search')?.value||'').toLowerCase();
+  const propios = getPropietarios();
+  const lista = q ? propios.filter(p =>
+    (p.nombre||'').toLowerCase().includes(q) ||
+    (p.dni||'').toLowerCase().includes(q)
+  ) : propios;
+
+  const el = document.getElementById('f-prop-list');
+  if (!el) return;
+  el.style.display = 'block';
+  el.innerHTML = lista.map(pr=>`
+    <div class="inm-list-item" onclick="seleccionarPropietario('${pr.id}','${(pr.nombre||'').replace(/'/g,'')}','${(pr.dni||'').replace(/'/g,'')}')">
+      <div class="inm-list-loc">${pr.nombre||'—'} ${pr.dni?`<span class='badge badge-sup'>${pr.dni}</span>`:''}</div>
+      <div class="inm-list-dir">${[pr.telefono,pr.email].filter(Boolean).join(' · ')}</div>
+    </div>`).join('') +
+    `<div class="inm-list-item inm-list-new" onclick="toggleNuevoPropietario()">
+      <div class="inm-list-loc" style="color:var(--acc)">+ Crear nuevo propietario</div>
+    </div>`;
+}
+
+function seleccionarPropietario(id, nombre, dni) {
+  document.getElementById('f-prop-id').value = id;
+  document.getElementById('f-prop-search').value = '';
+  document.getElementById('f-prop-list').style.display = 'none';
+  document.getElementById('f-prop-nuevo').style.display = 'none';
+  const sel = document.getElementById('f-prop-sel');
+  sel.style.display = 'flex';
+  sel.innerHTML = `<span>✅ ${nombre}${dni?' · '+dni:''}</span>
+    <button onclick="deseleccionarPropietario()" class="inm-desel">✕</button>`;
+}
+
+function deseleccionarPropietario() {
+  document.getElementById('f-prop-id').value = '';
+  document.getElementById('f-prop-sel').style.display = 'none';
+  document.getElementById('f-prop-search').value = '';
+}
+
+function toggleNuevoPropietario() {
+  const el = document.getElementById('f-prop-nuevo');
+  const show = el.style.display === 'none';
+  el.style.display = show ? 'block' : 'none';
+  document.getElementById('f-prop-list').style.display = 'none';
+  if (show) document.getElementById('f-pnombre')?.focus();
+}
+
+// Focus/blur para lista propietario
+function initPropietarioSearch() {
+  setTimeout(() => {
+    const s = document.getElementById('f-prop-search');
+    const l = document.getElementById('f-prop-list');
+    if (!s || !l) return;
+    s.addEventListener('focus', () => { filtrarPropietarios(); });
+    s.addEventListener('blur', () => setTimeout(() => { if(l) l.style.display='none'; }, 200));
+  }, 100);
+}
 function toggleAlq(){
   const t=document.getElementById('f-alq-tog');
   if(!t)return;
@@ -251,6 +397,39 @@ async function saveProperty(){
   // Detectar si cambia de libre → alquilado (solo en edición)
   const eraAlquilado = existing?.alquilado === true || existing?.alquilado === 'TRUE';
   const pasaAAlquilado = !St.isNew && !eraAlquilado && alq;
+  // Recoger datos propietario (nuevo o seleccionado)
+  const propId    = document.getElementById('f-prop-id')?.value || '';
+  const propNuevoWrap = document.getElementById('f-prop-nuevo');
+  const esNuevoProp = propNuevoWrap && propNuevoWrap.style.display !== 'none';
+  let propietario_id       = propId;
+  let propietario_nombre   = '';
+  let propietario_dni      = '';
+  let propietario_telefono = '';
+  let propietario_email    = '';
+  let propietario_dir      = '';
+
+  if (esNuevoProp) {
+    const pnombre = (document.getElementById('f-pnombre')?.value||'').trim();
+    if (!pnombre) { toast('El nombre del propietario es obligatorio', true); return; }
+    // Generar ID único para el propietario nuevo
+    propietario_id       = 'PROP-' + Date.now().toString(36).toUpperCase();
+    propietario_nombre   = pnombre;
+    propietario_dni      = (document.getElementById('f-pdni')?.value||'').trim();
+    propietario_telefono = (document.getElementById('f-ptel')?.value||'').trim();
+    propietario_email    = (document.getElementById('f-pemail')?.value||'').trim();
+    propietario_dir      = (document.getElementById('f-pdir')?.value||'').trim();
+  } else if (propId) {
+    // Propietario existente — recuperar sus datos del inmueble que lo tiene
+    const existente = getPropietarios().find(x=>x.id===propId);
+    if (existente) {
+      propietario_nombre   = existente.nombre;
+      propietario_dni      = existente.dni;
+      propietario_telefono = existente.telefono;
+      propietario_email    = existente.email;
+      propietario_dir      = existente.direccion;
+    }
+  }
+
   const obj={
     id:ref,referencia_catastral:ref,direccion:dir,localidad:loc,
     tipo:document.getElementById('f-tipo').value,
@@ -260,7 +439,9 @@ async function saveProperty(){
     valor_catastral:num('f-vcat'),precio_compra:num('f-compra'),precio_venta:num('f-venta'),
     gastos_comunidad:num('f-com'),ibi:num('f-ibi'),basuras:num('f-bas'),
     alquilado:alq,precio_alquiler:alq?num('f-alq'):0,
-    notas:(document.getElementById('f-notas')?.value||'').trim()
+    notas:(document.getElementById('f-notas')?.value||'').trim(),
+    propietario_id, propietario_nombre, propietario_dni,
+    propietario_telefono, propietario_email, propietario_dir,
   };
   const btnSave = document.querySelector('#edit-modal .btn-p');
   if (btnSave) { btnSave.disabled = true; btnSave.textContent = '⏳ Guardando...'; }
