@@ -185,17 +185,71 @@ function _renderAvisos() {
     html += `</div>`;
   }
 
-  if (!avisos.length) {
+  // ── CONTRATOS PRÓXIMOS A VENCER ─────────────────────────────────
+  const proxVencer = getContratosProxVencer();
+  if (proxVencer.length) {
+    html += `<div class="alq-section">
+      <div class="alq-sec-title" style="color:#7c5cfc">📋 Contratos por vencer (${proxVencer.length})</div>`;
+    proxVencer.forEach(c => html += renderContratoRenovacionCard(c, inmuebles));
+    html += `</div>`;
+  }
+
+  if (!avisos.length && !proxVencer.length) {
     html += `<div class="avisos-empty">
       <div class="avisos-empty-icon">✅</div>
       <div class="avisos-empty-title">Todo al día</div>
-      <div class="avisos-empty-sub">No hay pagos vencidos ni vencimientos en los próximos 31 días</div>
+      <div class="avisos-empty-sub">No hay pagos vencidos, vencimientos próximos ni contratos por renovar en los próximos 3 meses</div>
     </div>`;
   }
 
   document.getElementById('avisos-body').innerHTML = html;
   updateAvisosBadge();
 } // end _renderAvisos
+
+// ── Contratos próximos a vencer (≤90 días) ──────────────────────
+function getContratosProxVencer() {
+  return API.getContratos()
+    .filter(c => c.activo === true || c.activo === 'TRUE')
+    .filter(c => c.fecha_fin)
+    .map(c => ({ ...c, _diasFin: diasHasta(c.fecha_fin) }))
+    .filter(c => c._diasFin >= 0 && c._diasFin <= 90)
+    .sort((a, b) => a._diasFin - b._diasFin);
+}
+
+function renderContratoRenovacionCard(c, inmuebles) {
+  const inm = inmuebles.find(i => i.id === c.inmueble_id) || {};
+  const d   = c._diasFin;
+  const urgente = d <= 30;
+  const cls = urgente ? 'aviso-vencido' : 'aviso-proximo';
+  const color = urgente ? 'var(--red)' : 'var(--ylw)';
+  const diasStr = d === 0 ? 'Vence hoy' : `Vence en ${d} día${d !== 1 ? 's' : ''}`;
+
+  return `<div class="alq-card aviso-card ${cls}" style="border-left-color:${color}">
+    <div class="alq-card-top">
+      <div style="flex:1;min-width:0">
+        <div class="alq-card-title">${c.inquilino || '—'}</div>
+        <div class="alq-card-sub">${inm.tipo||''} · ${inm.localidad||''}</div>
+        <div class="alq-card-sub" style="margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          ${inm.direccion ? inm.direccion.split(' ').slice(0,6).join(' ') : '—'}
+        </div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:10px">
+        <div class="badge" style="background:rgba(124,92,252,.12);color:#7c5cfc;margin-bottom:4px">📋 Fin contrato</div>
+        <div class="alq-importe">${fmtE(c.renta_mensual)}/mes</div>
+        <div class="alq-fecha">${fmtFecha(c.fecha_fin)}</div>
+        <div class="alq-fecha" style="color:${color};font-weight:600">${diasStr}</div>
+      </div>
+    </div>
+    <div class="alq-card-btns">
+      <button class="abtn" style="background:rgba(79,142,247,.12);color:var(--acc);border-color:rgba(79,142,247,.3)"
+        onclick="renovarContrato('${c.id}')">🔄 Renovar</button>
+      <button class="abtn" style="background:rgba(234,179,8,.12);color:var(--ylw);border-color:rgba(234,179,8,.3)"
+        onclick="subirIPC('${c.id}')">📈 Subir IPC</button>
+      <button class="abtn abtn-ver"
+        onclick="openDetalleContrato('${c.id}')">Ver contrato</button>
+    </div>
+  </div>`;
+}
 
 function renderAvisoCard(p, contratos, inmuebles) {
   const ctr = contratos.find(c=>c.id===p.contrato_id) || {};
@@ -439,8 +493,15 @@ function renderContratoForm(c) {
       <div class="fg"><label class="fl">Email</label><input class="fi" id="cf-email" value="${c?.email||''}"></div>
     </div>
     <div class="frow">
-      <div class="fg"><label class="fl">Fecha inicio *</label><input class="fi" type="date" id="cf-ini" value="${c?.fecha_inicio||''}"></div>
-      <div class="fg"><label class="fl">Fecha fin</label><input class="fi" type="date" id="cf-fin" value="${c?.fecha_fin||''}"></div>
+      <div class="fg">
+        <label class="fl">Fecha inicio *</label>
+        <input class="fi" type="date" id="cf-ini" value="${c?.fecha_inicio||''}"
+          oninput="autoFechaFin()">
+      </div>
+      <div class="fg">
+        <label class="fl">Fecha fin <span style="font-weight:400;color:var(--txt3)">(def. 12 meses)</span></label>
+        <input class="fi" type="date" id="cf-fin" value="${c?.fecha_fin||''}">
+      </div>
     </div>
     <div class="frow">
       <div class="fg"><label class="fl">Renta mensual (€) *</label><input class="fi" type="number" min="0" id="cf-renta" value="${c?.renta_mensual||''}" placeholder="0"></div>
@@ -535,6 +596,17 @@ function deseleccionarInmueble() {
   filtrarInmuebles();
 }
 
+// Auto-calcula fecha_fin = fecha_inicio + 12 meses si el campo fin está vacío
+function autoFechaFin() {
+  const ini = document.getElementById('cf-ini')?.value;
+  const fin = document.getElementById('cf-fin');
+  if (!ini || !fin) return;
+  // Solo autocompletar si el campo fin está vacío
+  if (!fin.value) {
+    fin.value = addMeses(ini, 12);
+  }
+}
+
 async function saveContrato() {
   const inmId = document.getElementById('cf-inm').value;
   const ini   = document.getElementById('cf-ini').value;
@@ -562,7 +634,7 @@ async function saveContrato() {
     telefono:     document.getElementById('cf-tel').value.trim(),
     email:        document.getElementById('cf-email').value.trim(),
     fecha_inicio: ini,
-    fecha_fin:    document.getElementById('cf-fin').value || '',
+    fecha_fin:    document.getElementById('cf-fin').value || addMeses(ini, 12),
     renta_mensual: renta,
     periodicidad: per,
     dia_cobro:    parseInt(document.getElementById('cf-dia').value)||0,
@@ -714,4 +786,122 @@ async function confirmarCobro() {
 function openDetallePago(id) {
   const p = API.getPagos().find(x=>x.id===id);
   if (p) openDetalleContrato(p.contrato_id);
+}
+
+// ── Renovar contrato — extiende fecha_fin 12 meses ───────────────
+function renovarContrato(id) {
+  const c = API.getContratos().find(x => x.id === id);
+  if (!c) return;
+  const inm = API.getInmuebles().find(i => i.id === c.inmueble_id) || {};
+  const nuevaFin = addMeses(c.fecha_fin || hoy(), 12);
+
+  // Abrir modal de edición con fecha_fin actualizada
+  document.getElementById('ctr-modal-title').textContent = '🔄 Renovar contrato';
+  renderContratoForm(c);
+  _resetCtrModalBtn();
+  // Actualizar fecha fin con la renovación
+  setTimeout(() => {
+    const finEl = document.getElementById('cf-fin');
+    if (finEl) finEl.value = nuevaFin;
+    // Marcar visualmente que es una renovación
+    const btn = document.querySelector('#ctr-modal .btn-p');
+    if (btn) btn.textContent = '🔄 Guardar renovación';
+  }, 50);
+  document.getElementById('ctr-modal').classList.add('open');
+}
+
+// ── Subir IPC — actualiza renta con porcentaje ───────────────────
+function subirIPC(id) {
+  const c = API.getContratos().find(x => x.id === id);
+  if (!c) return;
+
+  // Crear modal de subida IPC
+  let modal = document.getElementById('ipc-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'ipc-modal';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `<div class="modal">
+      <div class="mhandle"></div>
+      <div class="mtitle">📈 Actualizar renta</div>
+      <div id="ipc-info" style="background:var(--sur2);border:1px solid var(--bdr);border-radius:10px;padding:12px;margin-bottom:14px;font-size:13px"></div>
+      <div class="fg">
+        <label class="fl">Incremento (%)</label>
+        <input class="fi" type="number" id="ipc-pct" value="3.5" step="0.1" min="0" max="20" placeholder="Ej: 3.5">
+      </div>
+      <div class="fg">
+        <label class="fl">Nueva renta mensual (€)</label>
+        <input class="fi" type="number" id="ipc-nueva" step="0.01" min="0">
+      </div>
+      <div id="ipc-preview" style="font-size:12px;color:var(--grn);margin-bottom:8px;text-align:center"></div>
+      <div class="mbtns">
+        <button class="btn btn-s" onclick="closeModal('ipc-modal')">Cancelar</button>
+        <button class="btn btn-p" onclick="confirmarIPC()" style="flex:2">✅ Aplicar</button>
+      </div>
+    </div>`;
+    modal.addEventListener('click', e => { if(e.target===modal) modal.classList.remove('open'); });
+    document.getElementById('app').appendChild(modal);
+
+    // Actualizar nueva renta al cambiar % 
+    document.getElementById('ipc-pct').addEventListener('input', calcIPC);
+    document.getElementById('ipc-nueva').addEventListener('input', () => {
+      document.getElementById('ipc-preview').textContent = '';
+    });
+  }
+
+  window._ipcContratoId = id;
+  const rentaActual = c.renta_mensual || 0;
+  document.getElementById('ipc-info').innerHTML =
+    `<strong>${c.inquilino || '—'}</strong><br>
+     Renta actual: <strong style="color:var(--acc)">${fmtE(rentaActual)}/mes</strong>`;
+  document.getElementById('ipc-pct').value = '3.5';
+  calcIPC();
+  modal.classList.add('open');
+}
+
+function calcIPC() {
+  const id = window._ipcContratoId;
+  const c  = id ? API.getContratos().find(x=>x.id===id) : null;
+  if (!c) return;
+  const pct     = parseFloat(document.getElementById('ipc-pct')?.value) || 0;
+  const nueva   = Math.round(c.renta_mensual * (1 + pct/100) * 100) / 100;
+  const nEl     = document.getElementById('ipc-nueva');
+  const prevEl  = document.getElementById('ipc-preview');
+  if (nEl) nEl.value = nueva;
+  if (prevEl) prevEl.textContent =
+    `${fmtE(c.renta_mensual)} → ${fmtE(nueva)} (+${fmtE(nueva - c.renta_mensual, 2)}/mes)`;
+}
+
+async function confirmarIPC() {
+  const id     = window._ipcContratoId;
+  const c      = id ? API.getContratos().find(x=>x.id===id) : null;
+  if (!c) return;
+  const nueva  = parseFloat(document.getElementById('ipc-nueva')?.value) || 0;
+  if (!nueva || nueva <= 0) { toast('Introduce una renta válida', true); return; }
+
+  const btn = document.querySelector('#ipc-modal .btn-p');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Aplicando...'; }
+
+  closeModal('ipc-modal');
+  showProgress(['Actualizando renta del contrato...', 'Actualizando inmueble...']);
+
+  try {
+    setProgressStep(0);
+    const cActualizado = { ...c, renta_mensual: nueva };
+    await API.updateContrato(cActualizado);
+
+    setProgressStep(1);
+    const inm = API.getInmuebles().find(i => i.id === c.inmueble_id);
+    if (inm) await API.updateInm({ ...inm, precio_alquiler: nueva });
+
+    hideProgress();
+    if (btn) { btn.disabled = false; btn.textContent = '✅ Aplicar'; }
+    renderAvisos();
+    if (typeof renderList === 'function') renderList();
+    toast(`✅ Renta actualizada a ${fmtE(nueva)}/mes`);
+  } catch(e) {
+    hideProgress();
+    if (btn) { btn.disabled = false; btn.textContent = '✅ Aplicar'; }
+    toast('Error: ' + e.message, true);
+  }
 }

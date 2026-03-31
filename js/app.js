@@ -651,11 +651,16 @@ async function init(){
 }
 
 function updateAvisosBadge(){
-  const n=API.getPagos().filter(p=>{
-    if(p.estado!=='pendiente')return false;
+  // Pagos próximos o vencidos
+  const nPagos = API.getPagos().filter(p=>{
+    if(p.estado!=='pendiente') return false;
     const d=Math.round((new Date(p.fecha_vencimiento+'T00:00:00')-new Date(hoy()+'T00:00:00'))/86400000);
     return d<=30;
   }).length;
+  // Contratos próximos a vencer (≤90 días)
+  const nContratos = typeof getContratosProxVencer === 'function'
+    ? getContratosProxVencer().length : 0;
+  const n = nPagos + nContratos;
   const badge=document.getElementById('avisos-badge');
   if(badge){badge.textContent=n||'';badge.style.display=n?'inline-flex':'none';}
 }
