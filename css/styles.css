@@ -31,7 +31,7 @@ input,select,textarea{font-family:inherit}
 .hbrand{flex:1}
 .htitle{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;background:linear-gradient(90deg,#4f8ef7,#7c5cfc);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .hsub{font-size:10px;color:var(--txt3);margin-top:1px;letter-spacing:.05em}
-.hback{width:36px;height:36px;background:var(--sur);border:1px solid var(--bdr);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.hback{width:36px;height:36px;background:var(--sur2);border:1px solid var(--acc);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;color:var(--acc);font-weight:700}
 .hdtitle{font-family:'Syne',sans-serif;font-weight:700;font-size:18px;flex:1}
 .hadd{width:36px;height:36px;background:linear-gradient(135deg,var(--acc),var(--acc2));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;color:#fff;flex-shrink:0;box-shadow:0 4px 12px rgba(79,142,247,.3)}
 .hedit{background:var(--sur);border:1px solid var(--bdr);box-shadow:none}
@@ -250,7 +250,7 @@ input,select,textarea{font-family:inherit}
 .swrap input{flex:1;background:none;border:none;outline:none;color:var(--txt);font-size:14px}
 .swrap input::placeholder{color:var(--txt3)}
 .sclear{color:var(--txt3);font-size:14px;display:none}
-.filters{padding:8px 14px 4px;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;flex-shrink:0}
+.filters{padding:8px 14px 4px;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;flex-shrink:0;flex-wrap:nowrap}
 .filters::-webkit-scrollbar{display:none}
 .filter-chip{padding:5px 12px;border-radius:20px;border:1px solid var(--bdr);background:var(--sur);color:var(--txt2);font-size:12px;font-weight:500;white-space:nowrap;flex-shrink:0;transition:all .15s}
 .filter-chip.active{background:var(--acc);border-color:var(--acc);color:#fff}
@@ -536,4 +536,184 @@ input,select,textarea{font-family:inherit}
 @media(min-width:768px) and (max-width:1023px){
   :root{--detail-w:340px;--sidebar-w:200px}
   .kpi-grid{grid-template-columns:1fr 1fr}
+}
+
+/* ════════════════════════════════════════════════════════════════
+   LOGIN SCREEN
+════════════════════════════════════════════════════════════════ */
+#login-screen {
+  position: fixed; inset: 0; z-index: 99999;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+#login-box {
+  width: 100%; max-width: 380px;
+  display: flex; flex-direction: column; align-items: center; gap: 28px;
+}
+#login-logo { text-align: center; }
+.login-title {
+  font-family: 'Syne', sans-serif; font-size: 32px; font-weight: 800;
+  background: linear-gradient(90deg, #4f8ef7, #7c5cfc);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  margin-bottom: 4px;
+}
+.login-sub { font-size: 13px; color: var(--txt3); letter-spacing: .05em; }
+.login-card {
+  background: var(--sur); border: 1px solid var(--bdr);
+  border-radius: 20px; padding: 28px 24px; width: 100%;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.login-card-title {
+  font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700;
+  margin-bottom: 18px; color: var(--txt);
+}
+.pwd-wrap { position: relative; }
+.pwd-wrap .fi { padding-right: 42px; }
+.pwd-eye {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; cursor: pointer; font-size: 16px;
+  color: var(--txt3); padding: 4px;
+}
+.pwd-eye:hover { color: var(--txt2); }
+.login-err {
+  font-size: 12px; color: var(--red); min-height: 18px;
+  margin-bottom: 4px; text-align: center;
+}
+.login-card .btn-p { margin-top: 8px; padding: 13px; font-size: 15px; }
+.login-footer { font-size: 11px; color: var(--txt3); }
+
+@keyframes shake {
+  0%,100%{transform:translateX(0)}
+  20%{transform:translateX(-8px)}
+  40%{transform:translateX(8px)}
+  60%{transform:translateX(-6px)}
+  80%{transform:translateX(6px)}
+}
+.shake { animation: shake .5s ease; }
+
+/* Logout button in sidebar */
+.logout-btn { color: var(--txt3) !important; margin-top: auto; }
+.logout-btn:hover { color: var(--red) !important; background: rgba(239,68,68,.08) !important; }
+@media(min-width:768px) {
+  .logout-btn { border-top: 1px solid var(--bdr); }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   BOTÓN ATRÁS — más visible
+════════════════════════════════════════════════════════════════ */
+.hback{
+  color:var(--txt);
+  font-size:20px;
+  font-weight:500;
+  background:var(--sur2);
+  border:1px solid var(--acc);
+  color:var(--acc);
+}
+.hback:hover{background:rgba(79,142,247,.15)}
+
+/* ════════════════════════════════════════════════════════════════
+   FILTRO LOCALIDADES — select en desktop
+════════════════════════════════════════════════════════════════ */
+.loc-select{
+  min-width:200px;
+  max-width:300px;
+  padding:7px 12px;
+  font-size:13px;
+  height:36px;
+}
+@media(min-width:768px){
+  #filters-loc{
+    padding:8px 24px 4px;
+    flex-wrap:nowrap;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   PROPIETARIO — separador y estilos
+════════════════════════════════════════════════════════════════ */
+.prop-sep{margin:16px 0 8px}
+.prop-sep-line{
+  display:flex;align-items:center;gap:10px;
+  color:var(--txt3);font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.06em;
+}
+.prop-sep-line::before,.prop-sep-line::after{
+  content:'';flex:1;height:1px;background:var(--bdr);
+}
+.prop-search-wrap{position:relative}
+.inm-list-new{border-top:1px solid var(--bdr);margin-top:2px}
+.inm-list-new:hover{background:rgba(79,142,247,.06)}
+
+/* ════════════════════════════════════════════════════════════════
+   FILTROS DESKTOP — grid wrap en lugar de scroll horizontal
+════════════════════════════════════════════════════════════════ */
+@media (min-width: 768px) {
+  /* Localidades: wrap en múltiples líneas */
+  #filters-loc {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    max-height: none;
+    padding: 6px 24px 4px;
+  }
+  /* Tipo y estado: una sola fila sin scroll */
+  #filters-tipo,
+  #filters-estado {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    padding: 6px 24px 4px;
+  }
+  .filter-chip {
+    font-size: 12px;
+    padding: 5px 14px;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   BOTÓN ATRÁS — visible y claro
+════════════════════════════════════════════════════════════════ */
+.hback {
+  color: var(--acc) !important;
+  border-color: var(--acc) !important;
+  background: rgba(79,142,247,.1) !important;
+  font-weight: 700;
+}
+.hback:hover {
+  background: rgba(79,142,247,.2) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   PROPIETARIO — separador y estilos en formulario
+════════════════════════════════════════════════════════════════ */
+.prop-sep { margin: 16px 0 4px; }
+.prop-sep-line {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--txt3);
+}
+.prop-sep-line::before,
+.prop-sep-line::after {
+  content: ''; flex: 1; height: 1px; background: var(--bdr);
+}
+.prop-search-wrap { position: relative; }
+
+/* ════════════════════════════════════════════════════════════════
+   SELECT LOCALIDADES EN DESKTOP
+════════════════════════════════════════════════════════════════ */
+.loc-select {
+  width: auto;
+  min-width: 200px;
+  max-width: 320px;
+  padding: 6px 32px 6px 12px;
+  font-size: 13px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238892a4' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+}
+@media (min-width: 768px) {
+  #filters-loc {
+    padding: 6px 24px 6px;
+    align-items: center;
+  }
 }
