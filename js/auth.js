@@ -84,8 +84,15 @@ async function attemptLogin() {
     setSession(email);
     hideLoginScreen();
     addLogoutButton();
-    // Inicializar la app si aún no se ha hecho
-    if (typeof init === 'function') init();
+    // Mostrar overlay de carga antes de inicializar
+    showProgress(['Cargando inmuebles...', 'Cargando contratos y pagos...', 'Preparando la app...']);
+    // Inicializar la app
+    if (typeof init === 'function') {
+      init().catch(e => {
+        hideProgress();
+        console.error('Error en init:', e);
+      });
+    }
   } else {
     err.textContent = 'Contraseña incorrecta';
     btn.disabled = false;

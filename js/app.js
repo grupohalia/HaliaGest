@@ -608,21 +608,38 @@ async function init(){
   API.init(window.GAS_URL||'');
   applyResponsiveLayout();
   window.addEventListener('resize', applyResponsiveLayout);
-  loading(true);
+
+  // Si el overlay de carga está activo (viene del login), avanzar pasos
+  // Si no está activo (recarga directa con sesión), mostrarlo nosotros
+  const overlayActivo = document.getElementById('progress-overlay')?.style.display === 'flex';
+  if (!overlayActivo) {
+    showProgress(['Cargando datos...']);
+  }
+
   try{
+    setProgressStep(0);
     await API.load();
-    buildLocFilter();renderList();renderFinance();
-    // Sincronizar pagos al arrancar (en background, sin bloquear UI)
+
+    setProgressStep(1);
+    buildLocFilter(); renderList(); renderFinance();
+
+    setProgressStep(2);
+    // Sincronizar pagos en background
     if (API.isConfigured() && typeof sincronizarPagos === 'function') {
       sincronizarPagos()
         .then(n => { if(n>0){ updateAvisosBadge(); } })
         .catch(e => console.warn('Sync pagos:', e.message));
     }
-    // Badge de avisos en tab
     updateAvisosBadge();
-    if(!API.isConfigured())document.getElementById('api-banner').style.display='flex';
-  }catch(e){toast('Error cargando datos: '+e.message,true);console.error(e);}
-  finally{loading(false);}
+    if(!API.isConfigured()) document.getElementById('api-banner').style.display='flex';
+
+    hideProgress();
+  } catch(e) {
+    hideProgress();
+    toast('Error cargando datos: '+e.message, true);
+    console.error(e);
+  }
+
   document.getElementById('search-input').addEventListener('input',e=>{
     St.query=e.target.value.toLowerCase();
     document.getElementById('search-clear').style.display=e.target.value?'block':'none';
