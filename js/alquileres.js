@@ -37,45 +37,121 @@ function importePeriodo(renta, periodicidad) {
 // ── Calcular el próximo vencimiento de un contrato ──────────────
 // Partiendo de fecha_inicio, avanza periodos hasta encontrar
 // el primer vencimiento que sea >= hoy
+// ── Calcular próximo vencimiento REAL ignorando fecha_fin ────────
+// Para contratos activos, la fecha_fin puede estar caducada (renovación
+// tácita). Lo que importa es el ciclo de pagos desde fecha_inicio.
+// Devuelve el próximo vencimiento futuro (siempre, aunque fecha_fin sea pasada)
 function proximoVencimiento(contrato) {
-  const meses  = MESES_PERIODO[contrato.periodicidad] || 1;
-  const fin    = contrato.fecha_fin || '2099-12-31';
-  let fecha    = addMeses(contrato.fecha_inicio, meses);
+  const meses = MESES_PERIODO[contrato.periodicidad] || 1;
+  let fecha   = addMeses(contrato.fecha_inicio, meses);
+  const hoyStr = hoy();
 
-  // Avanzar hasta el primer vencimiento futuro o actual
-  while (fecha < hoy() && fecha <= fin) {
+  // Avanzar hasta el primer vencimiento >= hoy
+  // Límite de seguridad: máximo 600 iteraciones (~50 años)
+  let iter = 0;
+  while (fecha < hoyStr && iter < 600) {
     fecha = addMeses(fecha, meses);
+    iter++;
   }
-  if (fecha > fin) return null; // contrato terminado
   return fecha;
 }
 
-// ── Revisar todos los contratos activos y crear pagos pendientes ─
-// Lógica: para cada contrato activo, busca el próximo vencimiento.
-// Si faltan ≤31 días y no existe ya ese pago → lo crea.
-// También marca como "vencido" los pagos pendientes ya pasados.
+// ── Limpiar pagos duplicados de memoria local ─────────────────────
+// Detecta pares contrato_id + fecha_vencimiento duplicados
+// y elimina los más antiguos (por id, keepig the first)
+function limpiarDuplicadosLocales() {
+  const pagos = API.getPagos();
+  const vistos = new Set();
+  const duplicados = [];
+
+  pagos.forEach(p => {
+    const fv  = (p.fecha_vencimiento || '').slice(0, 10);
+    const key = p.contrato_id + '|' + fv;
+    if (vistos.has(key)) {
+      duplicados.push(p.id);
+    } else {
+      vistos.add(key);
+    }
+  });
+
+  if (duplicados.length > 0) {
+    console.warn('[Pagos] Duplicados detectados en memoria:', duplicados.length, duplicados);
+  }
+  return duplicados;
+}
+
+// ── Limpiar duplicados del Sheet (llamar una vez desde consola) ───
+// Uso: await limpiarDuplicadosSheet()
+async function limpiarDuplicadosSheet() {
+  const pagos   = API.getPagos();
+  const vistos  = new Map(); // key → primer pago visto
+  const borrar  = [];
+
+  // Ordenar por id para mantener siempre el primero creado
+  const sorted = [...pagos].sort((a, b) => a.id.localeCompare(b.id));
+
+  sorted.forEach(p => {
+    const fv  = (p.fecha_vencimiento || '').slice(0, 10);
+    const key = p.contrato_id + '|' + fv;
+    if (vistos.has(key)) {
+      borrar.push(p.id); // duplicado → eliminar
+    } else {
+      vistos.set(key, p.id);
+    }
+  });
+
+  if (!borrar.length) {
+    toast('✅ No hay duplicados en los pagos');
+    return 0;
+  }
+
+  toast(`🧹 Eliminando ${borrar.length} pagos duplicados...`);
+  showProgress([`Eliminando ${borrar.length} duplicados...`]);
+
+  try {
+    for (const id of borrar) {
+      await API.removePago(id);
+    }
+    hideProgress();
+    toast(`✅ ${borrar.length} duplicados eliminados`);
+    renderAvisos();
+    if (typeof renderAlquileres === 'function') renderAlquileres();
+  } catch(e) {
+    hideProgress();
+    toast('Error: ' + e.message, true);
+  }
+  return borrar.length;
+}
+
+// ── Sincronizar pagos — lógica robusta anti-duplicados ────────────
 async function sincronizarPagos() {
   const contratos = API.getContratos().filter(c => c.activo === true || c.activo === 'TRUE');
   const pagosExistentes = API.getPagos();
-  const hoyStr = hoy();
+
+  // Construir índice de pagos existentes: "contrato_id|fecha" → true
+  // Normalizar fechas para comparación segura (quitar hora si la hubiera)
+  const pagoIdx = new Set();
+  pagosExistentes.forEach(p => {
+    const fv = (p.fecha_vencimiento || '').slice(0, 10);
+    if (p.contrato_id && fv) {
+      pagoIdx.add(p.contrato_id + '|' + fv);
+    }
+  });
+
   const nuevos = [];
 
   contratos.forEach(c => {
-    const meses   = MESES_PERIODO[c.periodicidad] || 1;
     const importe = importePeriodo(c.renta_mensual, c.periodicidad);
-    const fin     = c.fecha_fin || '2099-12-31';
 
-    // Calcular el próximo vencimiento del contrato
+    // Próximo vencimiento real (ignoramos fecha_fin para contratos activos)
     const prox = proximoVencimiento(c);
-    if (!prox) return; // contrato ya terminado
+    if (!prox) return;
 
-    // Comprobar si ya existe ese pago (evitar duplicados)
-    const yaExiste = pagosExistentes.some(
-      p => p.contrato_id === c.id && p.fecha_vencimiento === prox
-    );
+    const key = c.id + '|' + prox;
 
-    // Crear solo si faltan ≤31 días y no existe
-    if (!yaExiste && diasHasta(prox) <= 31) {
+    // Solo crear si NO existe ya (ni en Sheet ni en los nuevos de esta misma sync)
+    if (!pagoIdx.has(key) && diasHasta(prox) <= 31) {
+      pagoIdx.add(key); // marcar para evitar dobles en la misma pasada
       nuevos.push({
         id:                idPago(),
         contrato_id:       c.id,
@@ -90,7 +166,6 @@ async function sincronizarPagos() {
     }
   });
 
-  // Crear todos los nuevos en una sola llamada
   if (nuevos.length > 0) {
     await API.createPagos(nuevos);
   }
@@ -206,14 +281,38 @@ function _renderAvisos() {
   updateAvisosBadge();
 } // end _renderAvisos
 
-// ── Contratos próximos a vencer (≤90 días) ──────────────────────
+// ── Contratos próximos a renovar (aviso anual) ───────────────────
+// Para cada contrato activo calcula el próximo aniversario de
+// fecha_inicio. Si faltan ≤90 días emite aviso de revisión/renovación.
+// Funciona aunque fecha_fin sea antigua o no exista.
 function getContratosProxVencer() {
+  const hoyStr = hoy();
   return API.getContratos()
     .filter(c => c.activo === true || c.activo === 'TRUE')
-    .filter(c => c.fecha_fin)
-    .map(c => ({ ...c, _diasFin: diasHasta(c.fecha_fin) }))
+    .filter(c => c.fecha_inicio)
+    .map(c => {
+      // Calcular próximo aniversario a partir de fecha_inicio
+      const proxAniv = proximoAniversario(c.fecha_inicio);
+      return { ...c, _diasFin: diasHasta(proxAniv), _fechaAniv: proxAniv };
+    })
     .filter(c => c._diasFin >= 0 && c._diasFin <= 90)
     .sort((a, b) => a._diasFin - b._diasFin);
+}
+
+// Próximo aniversario anual de una fecha
+// Ej: inicio 2021-03-15 → si hoy es 2024-01-10 → devuelve 2024-03-15
+function proximoAniversario(fechaInicio) {
+  const hoyStr = hoy();
+  const [, mesI, diaI] = fechaInicio.split('-');
+  const yearH = parseInt(hoyStr.split('-')[0]);
+
+  // Intentar este año
+  let aniv = yearH + '-' + mesI + '-' + diaI;
+  // Si ya pasó este año, ir al año siguiente
+  if (aniv <= hoyStr) {
+    aniv = (yearH + 1) + '-' + mesI + '-' + diaI;
+  }
+  return aniv;
 }
 
 function renderContratoRenovacionCard(c, inmuebles) {
@@ -224,6 +323,11 @@ function renderContratoRenovacionCard(c, inmuebles) {
   const color = urgente ? 'var(--red)' : 'var(--ylw)';
   const diasStr = d === 0 ? 'Vence hoy' : `Vence en ${d} día${d !== 1 ? 's' : ''}`;
 
+  // Calcular años que lleva el contrato
+  const aniosContrato = c.fecha_inicio
+    ? Math.floor(diasHasta(c.fecha_inicio) * -1 / 365) + 1
+    : '?';
+
   return `<div class="alq-card aviso-card ${cls}" style="border-left-color:${color}">
     <div class="alq-card-top">
       <div style="flex:1;min-width:0">
@@ -232,11 +336,14 @@ function renderContratoRenovacionCard(c, inmuebles) {
         <div class="alq-card-sub" style="margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
           ${inm.direccion ? inm.direccion.split(' ').slice(0,6).join(' ') : '—'}
         </div>
+        <div class="alq-card-sub" style="margin-top:3px;color:var(--txt3)">
+          Año ${aniosContrato} · desde ${fmtFecha(c.fecha_inicio)}
+        </div>
       </div>
       <div style="text-align:right;flex-shrink:0;margin-left:10px">
-        <div class="badge" style="background:rgba(124,92,252,.12);color:#7c5cfc;margin-bottom:4px">📋 Fin contrato</div>
+        <div class="badge" style="background:rgba(124,92,252,.12);color:#7c5cfc;margin-bottom:4px">📋 Renovación anual</div>
         <div class="alq-importe">${fmtE(c.renta_mensual)}/mes</div>
-        <div class="alq-fecha">${fmtFecha(c.fecha_fin)}</div>
+        <div class="alq-fecha">Aniversario: ${fmtFecha(c._fechaAniv)}</div>
         <div class="alq-fecha" style="color:${color};font-weight:600">${diasStr}</div>
       </div>
     </div>
@@ -788,22 +895,22 @@ function openDetallePago(id) {
   if (p) openDetalleContrato(p.contrato_id);
 }
 
-// ── Renovar contrato — extiende fecha_fin 12 meses ───────────────
+// ── Renovar contrato — actualiza fecha_fin al próximo aniversario ─
 function renovarContrato(id) {
   const c = API.getContratos().find(x => x.id === id);
   if (!c) return;
-  const inm = API.getInmuebles().find(i => i.id === c.inmueble_id) || {};
-  const nuevaFin = addMeses(c.fecha_fin || hoy(), 12);
 
-  // Abrir modal de edición con fecha_fin actualizada
+  // Nueva fecha fin = próximo aniversario + 12 meses
+  const proxAniv = proximoAniversario(c.fecha_inicio);
+  const nuevaFin = addMeses(proxAniv, 12);
+
   document.getElementById('ctr-modal-title').textContent = '🔄 Renovar contrato';
   renderContratoForm(c);
   _resetCtrModalBtn();
-  // Actualizar fecha fin con la renovación
+
   setTimeout(() => {
     const finEl = document.getElementById('cf-fin');
     if (finEl) finEl.value = nuevaFin;
-    // Marcar visualmente que es una renovación
     const btn = document.querySelector('#ctr-modal .btn-p');
     if (btn) btn.textContent = '🔄 Guardar renovación';
   }, 50);
