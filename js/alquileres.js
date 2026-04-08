@@ -185,16 +185,33 @@ function estadoVisual(pago) {
 // Primero sincroniza pagos (crea los próximos si faltan ≤31 días)
 // luego renderiza. Se usa una flag para no lanzar dos veces seguidas.
 let _sincronizando = false;
+let _subTab = 'pagos';        // 'pagos' | 'renovaciones'
+let _filtroPlazo = 'todos';   // 'todos' | '15' | '30'
+
+function switchSubTab(tab) {
+  _subTab = tab;
+  document.getElementById('subtab-pagos').classList.toggle('active', tab==='pagos');
+  document.getElementById('subtab-renovaciones').classList.toggle('active', tab==='renovaciones');
+  document.getElementById('panel-pagos').style.display       = tab==='pagos' ? 'flex' : 'none';
+  document.getElementById('panel-pagos').style.flexDirection = 'column';
+  document.getElementById('panel-renovaciones').style.display = tab==='renovaciones' ? 'flex' : 'none';
+  if (tab==='pagos') _renderPagos();
+  else _renderRenovaciones();
+}
+
+function setFiltroPlazo(btn, val) {
+  _filtroPlazo = val;
+  document.querySelectorAll('#filtro-plazo .filter-chip').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  _renderPagos();
+}
 async function renderAlquileres() {
-  // Pintar inmediatamente con datos actuales
   _renderAlquileres();
-  // Sincronizar en background y repintar si hay cambios
   if (!_sincronizando && API.isConfigured()) {
     _sincronizando = true;
     try {
       const n = await sincronizarPagos();
       if (n > 0) {
-        console.log(`[Pagos] ${n} nuevo(s) generado(s)`);
         _renderAlquileres();
         updateAvisosBadge();
       }
@@ -209,14 +226,16 @@ async function renderAlquileres() {
 // ── Render pestaña Avisos (independiente) ───────────────────────
 async function renderAvisos() {
   // Pintar inmediatamente con datos actuales
-  _renderAvisos();
+  _renderPagos();
+  _renderRenovaciones();
   // Luego sincronizar en background y repintar si hay cambios
   if (!_sincronizando && API.isConfigured()) {
     _sincronizando = true;
     try {
       const n = await sincronizarPagos();
       if (n > 0) {
-        _renderAvisos(); // repintar con los nuevos pagos
+        _renderPagos();
+        _renderRenovaciones();
         updateAvisosBadge();
       }
     } catch(e) {
@@ -227,58 +246,119 @@ async function renderAvisos() {
   }
 }
 
-function _renderAvisos() {
+// ── Panel PAGOS ─────────────────────────────────────────────────
+function _renderPagos() {
   const contratos = API.getContratos();
   const pagos     = API.getPagos();
   const inmuebles = API.getInmuebles();
+  const tipoFiltro = (document.getElementById('filtro-tipo-pago')?.value || '').trim();
+  const plazo      = _filtroPlazo;
 
-  const avisos = pagos
+  // Días máximos según filtro
+  const maxDias = plazo === '15' ? 15 : plazo === '30' ? 30 : 9999;
+
+  // Si plazo = 'todos' mostramos también vencidos. Si hay filtro de días, solo futuros en ese rango.
+  let avisos = pagos
     .filter(p => p.estado === 'pendiente')
     .map(p => ({ ...p, _ev: estadoVisual(p) }))
-    .filter(p => p._ev.cls === 'badge-proximo' || p._ev.cls === 'badge-vencido')
+    .filter(p => {
+      const ev = p._ev;
+      if (ev.cls === 'badge-vencido') return plazo === 'todos'; // vencidos solo en "Todos"
+      if (ev.cls === 'badge-proximo') return (ev.dias ?? 999) <= maxDias;
+      return false;
+    })
     .sort((a,b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento));
 
-  // Separar por tipo
+  // Filtro tipo inmueble
+  if (tipoFiltro) {
+    avisos = avisos.filter(p => {
+      const inm = inmuebles.find(i => i.id === p.inmueble_id);
+      return inm?.tipo === tipoFiltro;
+    });
+  }
+
   const vencidos = avisos.filter(p => p._ev.cls === 'badge-vencido');
-  const proximos = avisos.filter(p => p._ev.cls === 'badge-proximo');
+  const proximos = avisos.filter(p => p._ev.cls !== 'badge-vencido');
 
   let html = '';
-
-  // ── VENCIDOS ──────────────────────────────────────────────────
   if (vencidos.length) {
     html += `<div class="alq-section">
-      <div class="alq-sec-title" style="color:var(--red)">🔴 Pagos vencidos (${vencidos.length})</div>`;
+      <div class="alq-sec-title" style="color:var(--red)">🔴 Vencidos (${vencidos.length})</div>`;
     vencidos.forEach(p => html += renderAvisoCard(p, contratos, inmuebles));
     html += `</div>`;
   }
-
-  // ── PRÓXIMOS ──────────────────────────────────────────────────
   if (proximos.length) {
+    const label = plazo === 'todos' ? 'Próximos 31 días' : `Próximos ${plazo} días`;
     html += `<div class="alq-section">
-      <div class="alq-sec-title" style="color:var(--ylw)">🟡 Próximos 31 días (${proximos.length})</div>`;
+      <div class="alq-sec-title" style="color:var(--ylw)">🟡 ${label} (${proximos.length})</div>`;
     proximos.forEach(p => html += renderAvisoCard(p, contratos, inmuebles));
     html += `</div>`;
   }
-
-  // ── CONTRATOS PRÓXIMOS A VENCER ─────────────────────────────────
-  const proxVencer = getContratosProxVencer();
-  if (proxVencer.length) {
-    html += `<div class="alq-section">
-      <div class="alq-sec-title" style="color:#7c5cfc">📋 Contratos por vencer (${proxVencer.length})</div>`;
-    proxVencer.forEach(c => html += renderContratoRenovacionCard(c, inmuebles));
-    html += `</div>`;
-  }
-
-  if (!avisos.length && !proxVencer.length) {
+  if (!avisos.length) {
+    const plazoLabel = plazo === 'todos' ? '31 días' : `${plazo} días`;
     html += `<div class="avisos-empty">
       <div class="avisos-empty-icon">✅</div>
-      <div class="avisos-empty-title">Todo al día</div>
-      <div class="avisos-empty-sub">No hay pagos vencidos, vencimientos próximos ni contratos por renovar en los próximos 3 meses</div>
+      <div class="avisos-empty-title">Sin pagos pendientes</div>
+      <div class="avisos-empty-sub">No hay pagos vencidos ni con vencimiento en los próximos ${plazoLabel}${tipoFiltro?' para '+tipoFiltro:''}</div>
     </div>`;
   }
 
   document.getElementById('avisos-body').innerHTML = html;
+
+  // Badge del subtab pagos
+  const nPag = pagos.filter(p => {
+    if (p.estado !== 'pendiente') return false;
+    const d = diasHasta(p.fecha_vencimiento);
+    return d < 0 || d <= 30;
+  }).length;
+  const bPag = document.getElementById('badge-pagos');
+  if (bPag) { bPag.textContent = nPag||''; bPag.style.display = nPag ? 'inline-flex' : 'none'; }
+
   updateAvisosBadge();
+}
+
+// ── Panel RENOVACIONES ───────────────────────────────────────────
+function _renderRenovaciones() {
+  const inmuebles  = API.getInmuebles();
+  const tipoFiltro = (document.getElementById('filtro-tipo-renov')?.value || '').trim();
+
+  let proxVencer = getContratosProxVencer();
+  if (tipoFiltro) {
+    proxVencer = proxVencer.filter(c => {
+      const inm = inmuebles.find(i => i.id === c.inmueble_id);
+      return inm?.tipo === tipoFiltro;
+    });
+  }
+
+  let html = '';
+  if (proxVencer.length) {
+    html += `<div class="alq-section">
+      <div class="alq-sec-title" style="color:#7c5cfc">📋 Por renovar en 90 días (${proxVencer.length})</div>`;
+    proxVencer.forEach(c => html += renderContratoRenovacionCard(c, inmuebles));
+    html += `</div>`;
+  } else {
+    html += `<div class="avisos-empty">
+      <div class="avisos-empty-icon">✅</div>
+      <div class="avisos-empty-title">Sin renovaciones pendientes</div>
+      <div class="avisos-empty-sub">No hay contratos que vayan a cumplir aniversario en los próximos 3 meses${tipoFiltro?' para '+tipoFiltro:''}</div>
+    </div>`;
+  }
+  document.getElementById('renovaciones-body').innerHTML = html;
+
+  // Badge subtab renovaciones
+  const nRen = getContratosProxVencer().length;
+  const bRen = document.getElementById('badge-renov');
+  if (bRen) { bRen.textContent = nRen||''; bRen.style.display = nRen ? 'inline-flex' : 'none'; }
+
+  updateAvisosBadge();
+}
+
+// Llamado unificado desde renderAvisos
+function _renderAvisos() {
+  if (_subTab === 'pagos') _renderPagos();
+  else _renderRenovaciones();
+  // Actualizar ambos badges
+  _renderPagos._badgeOnly = false;
 } // end _renderAvisos
 
 // ── Contratos próximos a renovar (aviso anual) ───────────────────
@@ -387,59 +467,95 @@ function renderAvisoCard(p, contratos, inmuebles) {
 }
 
 function _renderAlquileres() {
-  const hoyStr  = hoy();
   const contratos = API.getContratos();
   const pagos     = API.getPagos();
   const inmuebles = API.getInmuebles();
 
-  // Contratos activos
-  const activos  = contratos.filter(c => c.activo === true || c.activo === 'TRUE');
+  // Filtros
+  const query     = (document.getElementById('alq-search')?.value || '').toLowerCase().trim();
+  const tipoFiltro = (document.getElementById('alq-filtro-tipo')?.value || '').trim();
+
+  // Mostrar/ocultar clear btn
+  const clrBtn = document.getElementById('alq-search-clear');
+  if (clrBtn) clrBtn.style.display = query ? 'block' : 'none';
+
+  // Filtrar contratos activos
+  let activos = contratos.filter(c => c.activo === true || c.activo === 'TRUE');
   const inactivos = contratos.filter(c => !(c.activo === true || c.activo === 'TRUE'));
+
+  // Aplicar filtro tipo
+  if (tipoFiltro) {
+    activos = activos.filter(c => {
+      const inm = inmuebles.find(i => i.id === c.inmueble_id);
+      return inm?.tipo === tipoFiltro;
+    });
+  }
+
+  // Aplicar búsqueda texto
+  if (query) {
+    activos = activos.filter(c => {
+      const inm = inmuebles.find(i => i.id === c.inmueble_id) || {};
+      return [c.inquilino, c.dni, inm.direccion, inm.localidad, inm.tipo]
+        .some(v => (v||'').toLowerCase().includes(query));
+    });
+  }
+
+  // Ordenar: primero los que tienen pagos pendientes vencidos, luego por nombre
+  activos.sort((a,b) => {
+    const aVenc = pagos.some(p => p.contrato_id===a.id && p.estado==='pendiente' && diasHasta(p.fecha_vencimiento)<0);
+    const bVenc = pagos.some(p => p.contrato_id===b.id && p.estado==='pendiente' && diasHasta(p.fecha_vencimiento)<0);
+    if (aVenc !== bVenc) return aVenc ? -1 : 1;
+    return (a.inquilino||'').localeCompare(b.inquilino||'');
+  });
 
   let html = '';
 
   // ── CONTRATOS ACTIVOS ─────────────────────────────────────────
+  const totalActivos = contratos.filter(c => c.activo === true || c.activo === 'TRUE').length;
   html += `<div class="alq-section">
     <div class="alq-sec-title">
-      📋 Contratos activos (${activos.length})
+      📋 Contratos activos${tipoFiltro||query ? ` (${activos.length} de ${totalActivos})` : ` (${activos.length})`}
       <button class="abtn abtn-new" onclick="openNuevoContrato()">+ Nuevo</button>
     </div>`;
 
   if (!activos.length) {
-    html += `<div class="alq-empty">No hay contratos activos. Pulsa "+ Nuevo" para crear uno.</div>`;
+    html += `<div class="alq-empty">${tipoFiltro||query ? 'Sin resultados para los filtros aplicados.' : 'No hay contratos activos. Pulsa "+ Nuevo" para crear uno.'}</div>`;
   } else {
     activos.forEach(c => {
       const inm  = inmuebles.find(i=>i.id===c.inmueble_id) || {};
       const pCtr = pagos.filter(p=>p.contrato_id===c.id);
       const pend  = pCtr.filter(p=>p.estado==='pendiente').length;
       const cobrados = pCtr.filter(p=>p.estado==='cobrado').length;
-      html += `<div class="alq-card contrato-card" onclick="openDetalleContrato('${c.id}')">
+      const tieneVencido = pCtr.some(p=>p.estado==='pendiente' && diasHasta(p.fecha_vencimiento)<0);
+      const tipoIco = inm.tipo==='Vivienda'?'🏠':inm.tipo==='Garaje'?'🚗':inm.tipo==='Trastero'?'📦':inm.tipo==='Local'?'🏪':'🏢';
+      html += `<div class="alq-card contrato-card${tieneVencido?' alq-card-urgente':''}" onclick="openDetalleContrato('${c.id}')">
         <div class="alq-card-top">
-          <div>
+          <div style="flex:1;min-width:0">
             <div class="alq-card-title">${c.inquilino || '—'}</div>
-            <div class="alq-card-sub">${inm.localidad||''} · ${inm.tipo||''}</div>
-            <div class="alq-card-sub" style="margin-top:2px">${inm.direccion ? inm.direccion.split(' ').slice(0,6).join(' ')+'...' : '—'}</div>
+            <div class="alq-card-sub">${tipoIco} ${inm.tipo||''} · ${inm.localidad||''}</div>
+            <div class="alq-card-sub" style="margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${inm.direccion ? inm.direccion.split(' ').slice(0,6).join(' ') : '—'}</div>
           </div>
-          <div style="text-align:right;flex-shrink:0">
+          <div style="text-align:right;flex-shrink:0;margin-left:8px">
             <div class="alq-importe">${fmtE(c.renta_mensual)}<span style="font-size:10px;font-weight:400">/mes</span></div>
             <div class="alq-fecha">${c.periodicidad}</div>
             <div class="alq-fecha">desde ${fmtFecha(c.fecha_inicio)}</div>
           </div>
         </div>
         <div class="alq-stats">
-          <span>📅 Pagos pendientes: <strong>${pend}</strong></span>
+          <span>📅 Pendientes: <strong${tieneVencido?' style="color:var(--red)"':''}>${pend}</strong></span>
           <span>✅ Cobrados: <strong>${cobrados}</strong></span>
+          ${tieneVencido?'<span style="color:var(--red);font-weight:600">⚠ Tiene pagos vencidos</span>':''}
         </div>
       </div>`;
     });
   }
   html += `</div>`;
 
-  // ── CONTRATOS INACTIVOS ───────────────────────────────────────
-  if (inactivos.length) {
+  // ── CONTRATOS INACTIVOS (solo si no hay filtros activos) ──────
+  if (!tipoFiltro && !query && inactivos.length) {
     html += `<div class="alq-section">
-      <div class="alq-sec-title">📁 Contratos finalizados (${inactivos.length})</div>`;
-    inactivos.forEach(c => {
+      <div class="alq-sec-title">📁 Finalizados (${inactivos.length})</div>`;
+    inactivos.slice(0, 10).forEach(c => {
       const inm = inmuebles.find(i=>i.id===c.inmueble_id) || {};
       html += `<div class="alq-card contrato-inactivo" onclick="openDetalleContrato('${c.id}')">
         <div class="alq-card-top">
@@ -451,6 +567,7 @@ function _renderAlquileres() {
         </div>
       </div>`;
     });
+    if (inactivos.length > 10) html += `<div class="alq-empty" style="padding:10px">... y ${inactivos.length-10} más</div>`;
     html += `</div>`;
   }
 
