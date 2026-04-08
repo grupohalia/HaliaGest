@@ -37,126 +37,130 @@ function importePeriodo(renta, periodicidad) {
 // ── Calcular el próximo vencimiento de un contrato ──────────────
 // Partiendo de fecha_inicio, avanza periodos hasta encontrar
 // el primer vencimiento que sea >= hoy
-// ── Calcular próximo vencimiento REAL ignorando fecha_fin ────────
-// Para contratos activos, la fecha_fin puede estar caducada (renovación
-// tácita). Lo que importa es el ciclo de pagos desde fecha_inicio.
-// Devuelve el próximo vencimiento futuro (siempre, aunque fecha_fin sea pasada)
-function proximoVencimiento(contrato) {
-  const meses = MESES_PERIODO[contrato.periodicidad] || 1;
-  let fecha   = addMeses(contrato.fecha_inicio, meses);
-  const hoyStr = hoy();
+// ═══════════════════════════════════════════════════════════════
+// LÓGICA DE PAGOS — unidad mínima: MES
+// ═══════════════════════════════════════════════════════════════
 
-  // Avanzar hasta el primer vencimiento >= hoy
-  // Límite de seguridad: máximo 600 iteraciones (~50 años)
-  let iter = 0;
-  while (fecha < hoyStr && iter < 600) {
+// ── Normalizar fecha a YYYY-MM-DD limpia ────────────────────────
+function normFecha(s) {
+  if (!s) return '';
+  return String(s).trim().slice(0, 10);
+}
+
+// ── Año-mes de una fecha: "2024-03" ─────────────────────────────
+function aniomes(fecha) {
+  return normFecha(fecha).slice(0, 7); // "YYYY-MM"
+}
+
+// ── Todos los vencimientos del ciclo de un contrato ─────────────
+// Genera la secuencia completa de fechas de vencimiento desde
+// fecha_inicio hasta el limite, en pasos de N meses según periodicidad
+function todosLosVencimientos(contrato, hasta) {
+  const meses = MESES_PERIODO[contrato.periodicidad] || 1;
+  const vencimientos = [];
+  let fecha = addMeses(contrato.fecha_inicio, meses);
+  let iter  = 0;
+  while (fecha <= hasta && iter < 600) {
+    vencimientos.push(fecha);
     fecha = addMeses(fecha, meses);
     iter++;
   }
-  return fecha;
+  return vencimientos;
 }
 
-// ── Limpiar pagos duplicados de memoria local ─────────────────────
-// Detecta pares contrato_id + fecha_vencimiento duplicados
-// y elimina los más antiguos (por id, keepig the first)
-function limpiarDuplicadosLocales() {
-  const pagos = API.getPagos();
-  const vistos = new Set();
-  const duplicados = [];
+// ── Meses cubiertos por un pago ──────────────────────────────────
+// Un pago cubre todos los meses del periodo que representa.
+// Ej: pago semestral con vencimiento 2024-06-01 cubre ene-jun 2024.
+// Devuelve Set de strings "YYYY-MM"
+function mesesCubiertos(pago, contrato) {
+  if (!pago || !contrato) return new Set();
+  const meses = MESES_PERIODO[contrato.periodicidad] || 1;
+  const fv    = normFecha(pago.fecha_vencimiento);
+  const cubiertos = new Set();
+  // El vencimiento es el último mes del periodo
+  // Retrocedemos (meses-1) para sacar todos los meses del periodo
+  for (let i = 0; i < meses; i++) {
+    const d = new Date(fv + 'T12:00:00');
+    d.setMonth(d.getMonth() - i);
+    cubiertos.add(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2,'0'));
+  }
+  return cubiertos;
+}
 
-  pagos.forEach(p => {
-    const fv  = (p.fecha_vencimiento || '').slice(0, 10);
-    const key = p.contrato_id + '|' + fv;
-    if (vistos.has(key)) {
-      duplicados.push(p.id);
-    } else {
-      vistos.add(key);
-    }
+// ── Índice de meses cubiertos por contrato ───────────────────────
+// Devuelve Map< contrato_id → Set<"YYYY-MM"> >
+// Incluye todos los pagos (cobrados Y pendientes) para saber
+// qué meses ya tienen pago emitido
+function buildMesesCubiertosIdx() {
+  const contratos = API.getContratos();
+  const ctrMap    = new Map(contratos.map(c => [c.id, c]));
+  const idx       = new Map(); // contrato_id → Set<aniomes>
+
+  API.getPagos().forEach(p => {
+    const ctr = ctrMap.get(p.contrato_id);
+    if (!ctr) return;
+    const fv = normFecha(p.fecha_vencimiento);
+    if (!fv) return;
+    if (!idx.has(p.contrato_id)) idx.set(p.contrato_id, new Set());
+    // Añadir todos los meses que cubre este pago
+    mesesCubiertos(p, ctr).forEach(m => idx.get(p.contrato_id).add(m));
+    // También indexar la fecha exacta para dedup por fecha
+    idx.get(p.contrato_id).add('DATE:' + fv);
   });
-
-  if (duplicados.length > 0) {
-    console.warn('[Pagos] Duplicados detectados en memoria:', duplicados.length, duplicados);
-  }
-  return duplicados;
+  return idx;
 }
 
-// ── Limpiar duplicados del Sheet (llamar una vez desde consola) ───
-// Uso: await limpiarDuplicadosSheet()
-async function limpiarDuplicadosSheet() {
-  const pagos   = API.getPagos();
-  const vistos  = new Map(); // key → primer pago visto
-  const borrar  = [];
-
-  // Ordenar por id para mantener siempre el primero creado
-  const sorted = [...pagos].sort((a, b) => a.id.localeCompare(b.id));
-
-  sorted.forEach(p => {
-    const fv  = (p.fecha_vencimiento || '').slice(0, 10);
-    const key = p.contrato_id + '|' + fv;
-    if (vistos.has(key)) {
-      borrar.push(p.id); // duplicado → eliminar
-    } else {
-      vistos.set(key, p.id);
-    }
-  });
-
-  if (!borrar.length) {
-    toast('✅ No hay duplicados en los pagos');
-    return 0;
-  }
-
-  toast(`🧹 Eliminando ${borrar.length} pagos duplicados...`);
-  showProgress([`Eliminando ${borrar.length} duplicados...`]);
-
-  try {
-    for (const id of borrar) {
-      await API.removePago(id);
-    }
-    hideProgress();
-    toast(`✅ ${borrar.length} duplicados eliminados`);
-    renderAvisos();
-    if (typeof renderAlquileres === 'function') renderAlquileres();
-  } catch(e) {
-    hideProgress();
-    toast('Error: ' + e.message, true);
-  }
-  return borrar.length;
-}
-
-// ── Sincronizar pagos — lógica robusta anti-duplicados ────────────
+// ── Sincronizar pagos ────────────────────────────────────────────
+// Solo genera pagos para meses NO cubiertos dentro de ±31 días.
+// Anti-duplicado por: fecha exacta Y por mes cubierto.
 async function sincronizarPagos() {
-  const contratos = API.getContratos().filter(c => c.activo === true || c.activo === 'TRUE');
-  const pagosExistentes = API.getPagos();
+  const contratos = API.getContratos().filter(c =>
+    (c.activo === true || c.activo === 'TRUE') && c.fecha_inicio
+  );
 
-  // Construir índice de pagos existentes: "contrato_id|fecha" → true
-  // Normalizar fechas para comparación segura (quitar hora si la hubiera)
-  const pagoIdx = new Set();
-  pagosExistentes.forEach(p => {
-    const fv = (p.fecha_vencimiento || '').slice(0, 10);
-    if (p.contrato_id && fv) {
-      pagoIdx.add(p.contrato_id + '|' + fv);
-    }
-  });
+  const hoyStr   = hoy();
+  const limite   = addMeses(hoyStr, 1); // ventana: próximos 31 días
+  const mesesIdx = buildMesesCubiertosIdx();
+  const nuevosIdx = new Set(); // para evitar duplicados en esta misma pasada
 
   const nuevos = [];
 
   contratos.forEach(c => {
+    const meses   = MESES_PERIODO[c.periodicidad] || 1;
     const importe = importePeriodo(c.renta_mensual, c.periodicidad);
+    const cubiertos = mesesIdx.get(c.id) || new Set();
 
-    // Próximo vencimiento real (ignoramos fecha_fin para contratos activos)
-    const prox = proximoVencimiento(c);
-    if (!prox) return;
+    // Obtener todos los vencimientos del contrato hasta limite+1 periodo
+    const vencimientos = todosLosVencimientos(c, addMeses(limite, meses));
 
-    const key = c.id + '|' + prox;
+    // Buscar el primer vencimiento dentro de la ventana que no esté cubierto
+    for (const fv of vencimientos) {
+      if (fv > limite) break; // fuera de ventana
+      if (diasHasta(fv) < -1) continue; // ya muy pasado, ignorar
 
-    // Solo crear si NO existe ya (ni en Sheet ni en los nuevos de esta misma sync)
-    if (!pagoIdx.has(key) && diasHasta(prox) <= 31) {
-      pagoIdx.add(key); // marcar para evitar dobles en la misma pasada
+      const fechaKey  = 'DATE:' + fv;
+      const mesKey    = aniomes(fv);
+      const globalKey = c.id + '|' + fv;
+
+      // Ya existe pago para esta fecha exacta
+      if (cubiertos.has(fechaKey)) continue;
+      // Ya existe pago que cubre este mes
+      if (cubiertos.has(mesKey)) continue;
+      // Ya lo añadimos en esta misma pasada
+      if (nuevosIdx.has(globalKey)) continue;
+
+      nuevosIdx.add(globalKey);
+      // Marcar meses cubiertos para evitar dobles en misma pasada
+      if (!mesesIdx.has(c.id)) mesesIdx.set(c.id, new Set());
+      mesesCubiertos({ fecha_vencimiento: fv }, c)
+        .forEach(m => mesesIdx.get(c.id).add(m));
+      mesesIdx.get(c.id).add(fechaKey);
+
       nuevos.push({
         id:                idPago(),
         contrato_id:       c.id,
         inmueble_id:       c.inmueble_id,
-        fecha_vencimiento: prox,
+        fecha_vencimiento: fv,
         importe:           importe,
         estado:            'pendiente',
         fecha_cobro:       '',
@@ -170,6 +174,37 @@ async function sincronizarPagos() {
     await API.createPagos(nuevos);
   }
   return nuevos.length;
+}
+
+// ── Limpiar duplicados del Sheet ─────────────────────────────────
+// Uso desde consola: await limpiarDuplicadosSheet()
+async function limpiarDuplicadosSheet() {
+  const pagos  = [...API.getPagos()].sort((a, b) => a.id.localeCompare(b.id));
+  const vistos = new Set();
+  const borrar = [];
+
+  pagos.forEach(p => {
+    const key = p.contrato_id + '|' + normFecha(p.fecha_vencimiento);
+    if (vistos.has(key)) {
+      borrar.push(p.id);
+    } else {
+      vistos.add(key);
+    }
+  });
+
+  if (!borrar.length) { toast('✅ Sin duplicados'); return 0; }
+
+  showProgress([`Eliminando ${borrar.length} duplicados...`]);
+  try {
+    for (const id of borrar) await API.removePago(id);
+    hideProgress();
+    toast(`✅ ${borrar.length} duplicados eliminados`);
+    renderAvisos();
+    if (typeof _renderAlquileres === 'function') _renderAlquileres();
+  } catch(e) {
+    hideProgress(); toast('Error: ' + e.message, true);
+  }
+  return borrar.length;
 }
 
 // ── Estado de un pago con aviso 30 días ─────────────────────────
@@ -961,24 +996,56 @@ async function confirmarBaja() {
 // ── Modal: Registrar cobro ───────────────────────────────────────
 let _pagoId = null;
 function openCobrarModal(id) {
+  const p = API.getPagos().find(x => x.id === id);
+  if (!p) { toast('Pago no encontrado', true); return; }
+
+  // Guardar pago antes de verificar mes ya cobrado
+  // Verificar si ya existe otro pago cobrado para el mismo mes de este contrato
+  const mesPago = aniomes(p.fecha_vencimiento);
+  const yaExisteCobrado = API.getPagos().some(x =>
+    x.id !== id &&
+    x.contrato_id === p.contrato_id &&
+    x.estado === 'cobrado' &&
+    aniomes(x.fecha_vencimiento) === mesPago
+  );
+  if (yaExisteCobrado) {
+    toast('⚠ Ya existe un cobro registrado para este periodo', true);
+    return;
+  }
+  // También bloquear si el propio pago ya está cobrado
+  if (p.estado === 'cobrado') {
+    toast('Este pago ya está registrado como cobrado', true);
+    return;
+  }
+
   _pagoId = id;
-  const p   = API.getPagos().find(x=>x.id===id);
-  const ctr = p ? API.getContratos().find(c=>c.id===p.contrato_id) : null;
-  document.getElementById('cobro-fecha').value    = hoy();
-  document.getElementById('cobro-forma').value    = 'transferencia';
-  document.getElementById('cobro-importe').textContent = p ? fmtE(p.importe) : '';
-  document.getElementById('cobro-vence').textContent  = p ? fmtFecha(p.fecha_vencimiento) : '';
-  document.getElementById('cobro-quien').textContent  = ctr ? ctr.inquilino : '';
-  document.getElementById('cobro-notas').value    = '';
+  const ctr = API.getContratos().find(c => c.id === p.contrato_id);
+  const inm = API.getInmuebles().find(i => i.id === p.inmueble_id) || {};
+
+  document.getElementById('cobro-fecha').value   = hoy();
+  document.getElementById('cobro-forma').value   = 'transferencia';
+  document.getElementById('cobro-notas').value   = '';
+  document.getElementById('cobro-importe').textContent = fmtE(p.importe);
+  document.getElementById('cobro-vence').textContent  = fmtFecha(p.fecha_vencimiento);
+  document.getElementById('cobro-quien').innerHTML =
+    `<strong>${ctr?.inquilino || '—'}</strong>
+     <span style="font-size:11px;color:var(--txt2);margin-left:6px">${inm.tipo||''} · ${inm.localidad||''}</span>`;
+
   const btnC = document.querySelector('#cobro-modal .btn-p');
   if (btnC) { btnC.disabled = false; btnC.textContent = '✅ Confirmar cobro'; }
   document.getElementById('cobro-modal').classList.add('open');
 }
+
 async function confirmarCobro() {
   const fecha = document.getElementById('cobro-fecha').value;
   const forma = document.getElementById('cobro-forma').value;
   const notas = document.getElementById('cobro-notas').value;
   if (!fecha) { toast('Indica la fecha de cobro', true); return; }
+
+  // Doble check antes de guardar: el pago sigue siendo pendiente
+  const p = API.getPagos().find(x => x.id === _pagoId);
+  if (!p) { toast('Pago no encontrado', true); return; }
+  if (p.estado === 'cobrado') { toast('Este pago ya estaba cobrado', true); closeModal('cobro-modal'); return; }
 
   const btnCobro = document.querySelector('#cobro-modal .btn-p');
   if (btnCobro) { btnCobro.disabled = true; btnCobro.textContent = '⏳ Registrando...'; }
@@ -990,13 +1057,15 @@ async function confirmarCobro() {
   try {
     await API.cobrarPago(_pagoId, fecha, forma, notas);
     hideProgress();
+    // Refrescar el panel activo
     if (document.getElementById('screen-avisos')?.classList.contains('active')) {
-      renderAvisos();
+      _renderPagos();
+      updateAvisosBadge();
     } else {
-      renderAlquileres();
+      _renderAlquileres();
+      updateAvisosBadge();
     }
-    updateAvisosBadge();
-    toast('✅ Pago registrado como cobrado');
+    toast('✅ Cobro registrado correctamente');
   } catch(e) {
     hideProgress(); resetBtn();
     toast('Error: ' + e.message, true);
