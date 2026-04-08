@@ -403,20 +403,21 @@ function _renderRenovaciones() {
 }
 
 // ── Contratos próximos a vencer (por fecha_fin) ─────────────────
-// Emite aviso cuando fecha_fin está dentro de los próximos 90 días.
-// Si no tiene fecha_fin, se ignora (no hay vencimiento definido).
-// Al renovar → fecha_fin se amplía → desaparece del aviso.
+// Aviso cuando fecha_fin está dentro de ±90 días:
+//   - fecha_fin en próximos 90 días → amarillo/rojo (hay que renovar)
+//   - fecha_fin ya pasó (caducado sin renovar) → rojo urgente
+// Al renovar → fecha_fin +12 meses → sale de la ventana → desaparece
 function getContratosProxVencer() {
   const hoyStr = hoy();
   return API.getContratos()
     .filter(c => c.activo === true || c.activo === 'TRUE')
-    .filter(c => c.fecha_fin && c.fecha_fin > hoyStr) // solo con fecha_fin futura
+    .filter(c => c.fecha_fin)
     .map(c => ({
       ...c,
       _diasFin:   diasHasta(c.fecha_fin),
-      _fechaAniv: c.fecha_fin  // campo que usa la tarjeta para mostrar la fecha
+      _fechaAniv: c.fecha_fin
     }))
-    .filter(c => c._diasFin >= 0 && c._diasFin <= 90)
+    .filter(c => c._diasFin <= 90)   // futuros ≤90 días O ya caducados
     .sort((a, b) => a._diasFin - b._diasFin);
 }
 
@@ -426,7 +427,11 @@ function renderContratoRenovacionCard(c, inmuebles) {
   const urgente = d <= 30;
   const cls = urgente ? 'aviso-vencido' : 'aviso-proximo';
   const color = urgente ? 'var(--red)' : 'var(--ylw)';
-  const diasStr = d === 0 ? 'Vence hoy' : `Vence en ${d} día${d !== 1 ? 's' : ''}`;
+  const diasStr = d === 0
+    ? 'Vence hoy'
+    : d < 0
+      ? `Venció hace ${Math.abs(d)} día${Math.abs(d)!==1?'s':''}`
+      : `Vence en ${d} día${d!==1?'s':''}`;
 
   // Calcular años que lleva el contrato
   const aniosContrato = c.fecha_inicio
@@ -835,15 +840,15 @@ function deseleccionarInmueble() {
   filtrarInmuebles();
 }
 
-// Auto-calcula fecha_fin = fecha_inicio + 12 meses si el campo fin está vacío
+// Auto-calcula fecha_fin = fecha_inicio + 12 meses
+// Solo en contratos nuevos (no hay id oculto cf-id)
 function autoFechaFin() {
+  const isEdit = !!document.getElementById('cf-id');
+  if (isEdit) return; // en edición el usuario gestiona la fecha manualmente
   const ini = document.getElementById('cf-ini')?.value;
   const fin = document.getElementById('cf-fin');
   if (!ini || !fin) return;
-  // Solo autocompletar si el campo fin está vacío
-  if (!fin.value) {
-    fin.value = addMeses(ini, 12);
-  }
+  fin.value = addMeses(ini, 12);
 }
 
 async function saveContrato() {
@@ -1061,27 +1066,95 @@ function openDetallePago(id) {
   if (p) openDetalleContrato(p.contrato_id);
 }
 
-// ── Renovar contrato — extiende fecha_fin 12 meses más ──────────
+// ── Renovar contrato — extiende fecha_fin +12 meses y guarda ────
+let _renovModal = null;
 function renovarContrato(id) {
   const c = API.getContratos().find(x => x.id === id);
   if (!c) return;
 
-  // Nueva fecha_fin = fecha_fin actual + 12 meses
-  // Si no tiene fecha_fin, calculamos desde hoy + 12 meses
-  const baseDate = c.fecha_fin && c.fecha_fin > hoy() ? c.fecha_fin : hoy();
-  const nuevaFin = addMeses(baseDate, 12);
+  // Calcular nueva fecha_fin: base = fecha_fin actual si es futura, si no hoy
+  const base     = c.fecha_fin && c.fecha_fin > hoy() ? c.fecha_fin : hoy();
+  const nuevaFin = addMeses(base, 12);
+  const inm      = API.getInmuebles().find(i => i.id === c.inmueble_id) || {};
 
-  document.getElementById('ctr-modal-title').textContent = '🔄 Renovar contrato';
-  renderContratoForm(c);
-  _resetCtrModalBtn();
+  // Modal de confirmación rápida (sin abrir el formulario completo)
+  if (!_renovModal) {
+    _renovModal = document.createElement('div');
+    _renovModal.className = 'modal-overlay';
+    _renovModal.id = 'renov-modal';
+    _renovModal.addEventListener('click', e => { if (e.target === _renovModal) _renovModal.classList.remove('open'); });
+    document.getElementById('app').appendChild(_renovModal);
+  }
+  _renovModal.innerHTML = `<div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">🔄 Renovar contrato</div>
+    <div style="background:var(--sur2);border:1px solid var(--bdr);border-radius:10px;padding:14px;margin-bottom:16px">
+      <div style="font-size:14px;font-weight:600;margin-bottom:6px">${c.inquilino || '—'}</div>
+      <div style="font-size:12px;color:var(--txt2)">${inm.tipo||''} · ${inm.localidad||''}</div>
+      <div style="font-size:12px;color:var(--txt2);margin-top:2px">${inm.direccion||''}</div>
+    </div>
+    <div class="frow" style="margin-bottom:14px">
+      <div class="fg">
+        <label class="fl">Fin actual</label>
+        <div style="padding:10px 12px;background:var(--sur2);border:1px solid var(--bdr);border-radius:10px;font-size:14px;color:var(--txt2)">${fmtFecha(c.fecha_fin)}</div>
+      </div>
+      <div class="fg">
+        <label class="fl">Nueva fecha fin</label>
+        <input class="fi" type="date" id="renov-nueva-fin" value="${nuevaFin}">
+      </div>
+    </div>
+    <div class="fg">
+      <label class="fl">Nueva renta mensual (€) <span style="font-weight:400;color:var(--txt3)">opcional</span></label>
+      <input class="fi" type="number" id="renov-renta" value="${c.renta_mensual||''}" placeholder="${c.renta_mensual||''}">
+    </div>
+    <div class="mbtns">
+      <button class="btn btn-s" onclick="document.getElementById('renov-modal').classList.remove('open')">Cancelar</button>
+      <button class="btn btn-p" onclick="confirmarRenovacion('${id}')" style="flex:2">🔄 Confirmar renovación</button>
+    </div>
+  </div>`;
+  _renovModal.classList.add('open');
+}
 
-  setTimeout(() => {
-    const finEl = document.getElementById('cf-fin');
-    if (finEl) finEl.value = nuevaFin;
-    const btn = document.querySelector('#ctr-modal .btn-p');
-    if (btn) btn.textContent = '🔄 Guardar renovación';
-  }, 50);
-  document.getElementById('ctr-modal').classList.add('open');
+async function confirmarRenovacion(id) {
+  const c = API.getContratos().find(x => x.id === id);
+  if (!c) return;
+
+  const nuevaFin   = document.getElementById('renov-nueva-fin')?.value;
+  const nuevaRenta = parseFloat(document.getElementById('renov-renta')?.value) || c.renta_mensual;
+  if (!nuevaFin) { toast('Indica la nueva fecha de fin', true); return; }
+
+  const btn = document.querySelector('#renov-modal .btn-p');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Guardando...'; }
+
+  document.getElementById('renov-modal').classList.remove('open');
+  showProgress(['Guardando renovación...', 'Actualizando inmueble...']);
+
+  try {
+    setProgressStep(0);
+    const cActualizado = { ...c, fecha_fin: nuevaFin, renta_mensual: nuevaRenta };
+    await API.updateContrato(cActualizado);
+
+    // Si cambió la renta, actualizar también el inmueble
+    if (nuevaRenta !== c.renta_mensual) {
+      setProgressStep(1);
+      const inm = API.getInmuebles().find(i => i.id === c.inmueble_id);
+      if (inm) await API.updateInm({ ...inm, precio_alquiler: nuevaRenta });
+    }
+
+    hideProgress();
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Confirmar renovación'; }
+
+    // Refrescar — el contrato ya no aparecerá en avisos
+    _renderRenovaciones();
+    _renderAlquileres();
+    updateAvisosBadge();
+    if (typeof renderList === 'function') renderList();
+    toast(`✅ Contrato renovado hasta ${fmtFecha(nuevaFin)}`);
+  } catch(e) {
+    hideProgress();
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Confirmar renovación'; }
+    toast('Error: ' + e.message, true);
+  }
 }
 
 // ── Subir IPC — actualiza renta con porcentaje ───────────────────
