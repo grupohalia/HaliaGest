@@ -402,38 +402,22 @@ function _renderRenovaciones() {
   updateAvisosBadge();
 }
 
-// ── Contratos próximos a renovar (aviso anual) ───────────────────
-// Para cada contrato activo calcula el próximo aniversario de
-// fecha_inicio. Si faltan ≤90 días emite aviso de revisión/renovación.
-// Funciona aunque fecha_fin sea antigua o no exista.
+// ── Contratos próximos a vencer (por fecha_fin) ─────────────────
+// Emite aviso cuando fecha_fin está dentro de los próximos 90 días.
+// Si no tiene fecha_fin, se ignora (no hay vencimiento definido).
+// Al renovar → fecha_fin se amplía → desaparece del aviso.
 function getContratosProxVencer() {
   const hoyStr = hoy();
   return API.getContratos()
     .filter(c => c.activo === true || c.activo === 'TRUE')
-    .filter(c => c.fecha_inicio)
-    .map(c => {
-      // Calcular próximo aniversario a partir de fecha_inicio
-      const proxAniv = proximoAniversario(c.fecha_inicio);
-      return { ...c, _diasFin: diasHasta(proxAniv), _fechaAniv: proxAniv };
-    })
+    .filter(c => c.fecha_fin && c.fecha_fin > hoyStr) // solo con fecha_fin futura
+    .map(c => ({
+      ...c,
+      _diasFin:   diasHasta(c.fecha_fin),
+      _fechaAniv: c.fecha_fin  // campo que usa la tarjeta para mostrar la fecha
+    }))
     .filter(c => c._diasFin >= 0 && c._diasFin <= 90)
     .sort((a, b) => a._diasFin - b._diasFin);
-}
-
-// Próximo aniversario anual de una fecha
-// Ej: inicio 2021-03-15 → si hoy es 2024-01-10 → devuelve 2024-03-15
-function proximoAniversario(fechaInicio) {
-  const hoyStr = hoy();
-  const [, mesI, diaI] = fechaInicio.split('-');
-  const yearH = parseInt(hoyStr.split('-')[0]);
-
-  // Intentar este año
-  let aniv = yearH + '-' + mesI + '-' + diaI;
-  // Si ya pasó este año, ir al año siguiente
-  if (aniv <= hoyStr) {
-    aniv = (yearH + 1) + '-' + mesI + '-' + diaI;
-  }
-  return aniv;
 }
 
 function renderContratoRenovacionCard(c, inmuebles) {
@@ -462,9 +446,9 @@ function renderContratoRenovacionCard(c, inmuebles) {
         </div>
       </div>
       <div style="text-align:right;flex-shrink:0;margin-left:10px">
-        <div class="badge" style="background:rgba(124,92,252,.12);color:#7c5cfc;margin-bottom:4px">📋 Renovación anual</div>
+        <div class="badge" style="background:rgba(124,92,252,.12);color:#7c5cfc;margin-bottom:4px">📋 Vence contrato</div>
         <div class="alq-importe">${fmtE(c.renta_mensual)}/mes</div>
-        <div class="alq-fecha">Aniversario: ${fmtFecha(c._fechaAniv)}</div>
+        <div class="alq-fecha">Fin: ${fmtFecha(c._fechaAniv)}</div>
         <div class="alq-fecha" style="color:${color};font-weight:600">${diasStr}</div>
       </div>
     </div>
@@ -1077,14 +1061,15 @@ function openDetallePago(id) {
   if (p) openDetalleContrato(p.contrato_id);
 }
 
-// ── Renovar contrato — actualiza fecha_fin al próximo aniversario ─
+// ── Renovar contrato — extiende fecha_fin 12 meses más ──────────
 function renovarContrato(id) {
   const c = API.getContratos().find(x => x.id === id);
   if (!c) return;
 
-  // Nueva fecha fin = próximo aniversario + 12 meses
-  const proxAniv = proximoAniversario(c.fecha_inicio);
-  const nuevaFin = addMeses(proxAniv, 12);
+  // Nueva fecha_fin = fecha_fin actual + 12 meses
+  // Si no tiene fecha_fin, calculamos desde hoy + 12 meses
+  const baseDate = c.fecha_fin && c.fecha_fin > hoy() ? c.fecha_fin : hoy();
+  const nuevaFin = addMeses(baseDate, 12);
 
   document.getElementById('ctr-modal-title').textContent = '🔄 Renovar contrato';
   renderContratoForm(c);
