@@ -41,10 +41,30 @@ function importePeriodo(renta, periodicidad) {
 // LÓGICA DE PAGOS — unidad mínima: MES
 // ═══════════════════════════════════════════════════════════════
 
-// ── Normalizar fecha a YYYY-MM-DD limpia ────────────────────────
+// ── Normalizar fecha a YYYY-MM-DD ────────────────────────────────
+// Maneja: "2026-05-01", "2026-05-01T00:00:00", "5/1/2026", "01/05/2026"
 function normFecha(s) {
   if (!s) return '';
-  return String(s).trim().slice(0, 10);
+  const str = String(s).trim();
+
+  // Ya está en formato ISO: 2026-05-01...
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
+
+  // Formato M/D/YYYY o MM/DD/YYYY (Google Sheets US locale)
+  const us = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (us) {
+    const [, m, d, y] = us;
+    return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+  }
+
+  // Formato D/M/YYYY o DD/MM/YYYY (EU locale)
+  // Ambiguo con el anterior — intentamos parsear como Date y confiar en ISO
+  try {
+    const dt = new Date(str);
+    if (!isNaN(dt)) return dt.toISOString().slice(0, 10);
+  } catch(e) {}
+
+  return str.slice(0, 10); // fallback
 }
 
 // ── Año-mes de una fecha: "2024-03" ─────────────────────────────
@@ -136,7 +156,7 @@ async function sincronizarPagos() {
     // Buscar el primer vencimiento dentro de la ventana que no esté cubierto
     for (const fv of vencimientos) {
       if (fv > limite) break; // fuera de ventana
-      if (diasHasta(fv) < -1) continue; // ya muy pasado, ignorar
+      if (diasHasta(fv) < -7) continue; // ignorar pagos con >7 días de antigüedad
 
       const fechaKey  = 'DATE:' + fv;
       const mesKey    = aniomes(fv);
