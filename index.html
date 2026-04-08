@@ -88,88 +88,65 @@
 
     <!-- ── AVISOS ── -->
     <div class="screen" id="screen-avisos">
-      <!-- Sub-pestañas Pagos / Renovaciones -->
-      <div class="sub-tabs">
-        <button class="sub-tab active" id="subtab-pagos" onclick="switchSubTab('pagos')">
-          💳 Pagos <span id="badge-pagos" class="sub-badge" style="display:none"></span>
+      <!-- Sub-pestañas -->
+      <div class="sub-tabs" role="tablist">
+        <button class="sub-tab active" id="subtab-pagos" onclick="switchSubTab('pagos')" role="tab">
+          💳 Pagos<span id="badge-pagos" class="sub-badge" style="display:none"></span>
         </button>
-        <button class="sub-tab" id="subtab-renovaciones" onclick="switchSubTab('renovaciones')">
-          📋 Renovaciones <span id="badge-renov" class="sub-badge" style="display:none"></span>
+        <button class="sub-tab" id="subtab-renovaciones" onclick="switchSubTab('renovaciones')" role="tab">
+          📋 Renovaciones<span id="badge-renov" class="sub-badge" style="display:none"></span>
         </button>
       </div>
 
       <!-- Panel PAGOS -->
-      <div id="panel-pagos">
-        <!-- Filtros pagos -->
-        <div class="aviso-filtros">
-          <div class="aviso-filtro-group">
-            <label class="fl">Plazo</label>
-            <div class="filter-chips-row" id="filtro-plazo">
-              <button class="filter-chip active" onclick="setFiltroPlazo(this,'todos')">Todos</button>
-              <button class="filter-chip" onclick="setFiltroPlazo(this,'15')">15 días</button>
-              <button class="filter-chip" onclick="setFiltroPlazo(this,'30')">30 días</button>
-            </div>
-          </div>
-          <div class="aviso-filtro-group">
-            <label class="fl">Tipo inmueble</label>
-            <select class="fi fsel aviso-tipo-sel" id="filtro-tipo-pago" onchange="_renderPagos()">
-              <option value="">Todos</option>
-              <option value="Vivienda">🏠 Vivienda</option>
-              <option value="Garaje">🚗 Garaje</option>
-              <option value="Trastero">📦 Trastero</option>
-              <option value="Local">🏪 Local</option>
-            </select>
-          </div>
+      <div id="panel-pagos" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
+        <div class="filters" id="filtro-plazo-row">
+          <button class="filter-chip active" onclick="setFiltroPlazo(this,'todos')">Todos</button>
+          <button class="filter-chip" onclick="setFiltroPlazo(this,'15')">⏱ 15 días</button>
+          <button class="filter-chip" onclick="setFiltroPlazo(this,'30')">📅 30 días</button>
         </div>
-        <div class="scroll-area">
-          <div style="padding:0 14px 80px" id="avisos-body"></div>
+        <div class="filters" id="filtro-tipo-pago-row">
+          <button class="filter-chip active" onclick="setFiltroTipoPago(this,'')">Todos</button>
+          <button class="filter-chip" onclick="setFiltroTipoPago(this,'Vivienda')">🏠 Vivienda</button>
+          <button class="filter-chip" onclick="setFiltroTipoPago(this,'Garaje')">🚗 Garaje</button>
+          <button class="filter-chip" onclick="setFiltroTipoPago(this,'Trastero')">📦 Trastero</button>
+          <button class="filter-chip" onclick="setFiltroTipoPago(this,'Local')">🏪 Local</button>
         </div>
+        <div class="scroll-area"><div class="list-section" id="avisos-body"></div></div>
       </div>
 
       <!-- Panel RENOVACIONES -->
       <div id="panel-renovaciones" style="display:none;flex-direction:column;flex:1;overflow:hidden">
-        <!-- Filtro tipo inmueble -->
-        <div class="aviso-filtros">
-          <div class="aviso-filtro-group">
-            <label class="fl">Tipo inmueble</label>
-            <select class="fi fsel aviso-tipo-sel" id="filtro-tipo-renov" onchange="_renderRenovaciones()">
-              <option value="">Todos</option>
-              <option value="Vivienda">🏠 Vivienda</option>
-              <option value="Garaje">🚗 Garaje</option>
-              <option value="Trastero">📦 Trastero</option>
-              <option value="Local">🏪 Local</option>
-            </select>
-          </div>
+        <div class="filters" id="filtro-tipo-renov-row">
+          <button class="filter-chip active" onclick="setFiltroTipoRenov(this,'')">Todos</button>
+          <button class="filter-chip" onclick="setFiltroTipoRenov(this,'Vivienda')">🏠 Vivienda</button>
+          <button class="filter-chip" onclick="setFiltroTipoRenov(this,'Garaje')">🚗 Garaje</button>
+          <button class="filter-chip" onclick="setFiltroTipoRenov(this,'Trastero')">📦 Trastero</button>
+          <button class="filter-chip" onclick="setFiltroTipoRenov(this,'Local')">🏪 Local</button>
         </div>
-        <div class="scroll-area">
-          <div style="padding:0 14px 80px" id="renovaciones-body"></div>
-        </div>
+        <div class="scroll-area"><div class="list-section" id="renovaciones-body"></div></div>
       </div>
     </div>
 
     <!-- ── CONTRATOS ── -->
     <div class="screen" id="screen-alq">
-      <!-- Buscador + filtro tipo -->
-      <div class="search-box" style="display:flex;gap:8px;align-items:center">
+      <div class="search-box" style="display:flex;align-items:center;gap:10px">
         <div class="swrap" style="flex:1">
           <span>🔍</span>
-          <input type="text" id="alq-search" placeholder="Buscar inquilino, inmueble..." autocomplete="off"
-            oninput="renderAlquileres()">
-          <button style="color:var(--txt3);font-size:13px;display:none" id="alq-search-clear"
-            onclick="document.getElementById('alq-search').value='';this.style.display='none';renderAlquileres()">✕</button>
+          <input type="text" id="alq-search" placeholder="Buscar inquilino, dirección..." autocomplete="off"
+            oninput="_alqSearchInput(this)">
+          <button class="sclear" id="alq-search-clear"
+            onclick="document.getElementById('alq-search').value='';document.getElementById('alq-search-clear').style.display='none';_renderAlquileres()">✕</button>
         </div>
-        <select class="fi fsel" id="alq-filtro-tipo" style="width:auto;min-width:120px;font-size:12px;padding:8px 10px"
-          onchange="renderAlquileres()">
-          <option value="">Todos los tipos</option>
-          <option value="Vivienda">🏠 Vivienda</option>
-          <option value="Garaje">🚗 Garaje</option>
-          <option value="Trastero">📦 Trastero</option>
-          <option value="Local">🏪 Local</option>
-        </select>
       </div>
-      <div class="scroll-area">
-        <div style="padding:0 14px 80px" id="alq-body"></div>
+      <div class="filters" id="filtro-tipo-alq-row">
+        <button class="filter-chip active" onclick="setFiltroTipoAlq(this,'')">Todos</button>
+        <button class="filter-chip" onclick="setFiltroTipoAlq(this,'Vivienda')">🏠 Vivienda</button>
+        <button class="filter-chip" onclick="setFiltroTipoAlq(this,'Garaje')">🚗 Garaje</button>
+        <button class="filter-chip" onclick="setFiltroTipoAlq(this,'Trastero')">📦 Trastero</button>
+        <button class="filter-chip" onclick="setFiltroTipoAlq(this,'Local')">🏪 Local</button>
       </div>
+      <div class="scroll-area"><div class="list-section" id="alq-body"></div></div>
     </div>
 
     <!-- ── FINANZAS ── -->
