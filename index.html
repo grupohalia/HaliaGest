@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0a0c10">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>HaliaGest</title>
+  <title>GestorFincas</title>
   <link rel="stylesheet" href="css/styles.css">
   <script>
     window.GAS_URL = 'https://script.google.com/macros/s/AKfycbxMu22YYP-kkAlALCZas3PX_qgpTYZqOHlvlYuYdyIwawHeEEMgVJhgWfdpXtO_TLuv/exec';
@@ -21,7 +21,7 @@
     <!-- Brand — visible solo en desktop via CSS -->
     <div id="sidebar-brand">
       <div>
-        <div class="htitle">HaliaGest</div>
+        <div class="htitle">GestorFincas</div>
         <div class="hsub">Gestión de inmuebles</div>
       </div>
     </div>
@@ -88,21 +88,87 @@
 
     <!-- ── AVISOS ── -->
     <div class="screen" id="screen-avisos">
-      <div class="search-box" style="display:flex;align-items:center;justify-content:space-between">
-        <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700">🔔 Avisos</div>
+      <!-- Sub-pestañas Pagos / Renovaciones -->
+      <div class="sub-tabs">
+        <button class="sub-tab active" id="subtab-pagos" onclick="switchSubTab('pagos')">
+          💳 Pagos <span id="badge-pagos" class="sub-badge" style="display:none"></span>
+        </button>
+        <button class="sub-tab" id="subtab-renovaciones" onclick="switchSubTab('renovaciones')">
+          📋 Renovaciones <span id="badge-renov" class="sub-badge" style="display:none"></span>
+        </button>
       </div>
-      <div class="scroll-area">
-        <div style="padding:14px 14px 80px" id="avisos-body"></div>
+
+      <!-- Panel PAGOS -->
+      <div id="panel-pagos">
+        <!-- Filtros pagos -->
+        <div class="aviso-filtros">
+          <div class="aviso-filtro-group">
+            <label class="fl">Plazo</label>
+            <div class="filter-chips-row" id="filtro-plazo">
+              <button class="filter-chip active" onclick="setFiltroPlazo(this,'todos')">Todos</button>
+              <button class="filter-chip" onclick="setFiltroPlazo(this,'15')">15 días</button>
+              <button class="filter-chip" onclick="setFiltroPlazo(this,'30')">30 días</button>
+            </div>
+          </div>
+          <div class="aviso-filtro-group">
+            <label class="fl">Tipo inmueble</label>
+            <select class="fi fsel aviso-tipo-sel" id="filtro-tipo-pago" onchange="_renderPagos()">
+              <option value="">Todos</option>
+              <option value="Vivienda">🏠 Vivienda</option>
+              <option value="Garaje">🚗 Garaje</option>
+              <option value="Trastero">📦 Trastero</option>
+              <option value="Local">🏪 Local</option>
+            </select>
+          </div>
+        </div>
+        <div class="scroll-area">
+          <div style="padding:0 14px 80px" id="avisos-body"></div>
+        </div>
+      </div>
+
+      <!-- Panel RENOVACIONES -->
+      <div id="panel-renovaciones" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+        <!-- Filtro tipo inmueble -->
+        <div class="aviso-filtros">
+          <div class="aviso-filtro-group">
+            <label class="fl">Tipo inmueble</label>
+            <select class="fi fsel aviso-tipo-sel" id="filtro-tipo-renov" onchange="_renderRenovaciones()">
+              <option value="">Todos</option>
+              <option value="Vivienda">🏠 Vivienda</option>
+              <option value="Garaje">🚗 Garaje</option>
+              <option value="Trastero">📦 Trastero</option>
+              <option value="Local">🏪 Local</option>
+            </select>
+          </div>
+        </div>
+        <div class="scroll-area">
+          <div style="padding:0 14px 80px" id="renovaciones-body"></div>
+        </div>
       </div>
     </div>
 
     <!-- ── CONTRATOS ── -->
     <div class="screen" id="screen-alq">
-      <div class="search-box" style="display:flex;align-items:center;justify-content:space-between">
-        <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700">🔑 Contratos</div>
+      <!-- Buscador + filtro tipo -->
+      <div class="search-box" style="display:flex;gap:8px;align-items:center">
+        <div class="swrap" style="flex:1">
+          <span>🔍</span>
+          <input type="text" id="alq-search" placeholder="Buscar inquilino, inmueble..." autocomplete="off"
+            oninput="renderAlquileres()">
+          <button style="color:var(--txt3);font-size:13px;display:none" id="alq-search-clear"
+            onclick="document.getElementById('alq-search').value='';this.style.display='none';renderAlquileres()">✕</button>
+        </div>
+        <select class="fi fsel" id="alq-filtro-tipo" style="width:auto;min-width:120px;font-size:12px;padding:8px 10px"
+          onchange="renderAlquileres()">
+          <option value="">Todos los tipos</option>
+          <option value="Vivienda">🏠 Vivienda</option>
+          <option value="Garaje">🚗 Garaje</option>
+          <option value="Trastero">📦 Trastero</option>
+          <option value="Local">🏪 Local</option>
+        </select>
       </div>
       <div class="scroll-area">
-        <div style="padding:14px 14px 80px" id="alq-body"></div>
+        <div style="padding:0 14px 80px" id="alq-body"></div>
       </div>
     </div>
 
